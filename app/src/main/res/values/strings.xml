@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">ساعة ومنبّه</string>
+    <string name="alarm_channel_name">المنبّهات</string>
+    <string name="alarm_channel_description">إشعارات المنبّهات اليومية</string>
+</resources>
