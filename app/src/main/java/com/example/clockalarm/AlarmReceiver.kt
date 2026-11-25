@@ -8,35 +8,87 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != AlarmScheduler.ACTION_RING) return
+        when (intent.action) {
+            AlarmScheduler.ACTION_RING -> ring(context, intent, isSnooze = false)
+            AlarmScheduler.ACTION_RING_SNOOZED -> ring(context, intent, isSnooze = true)
+            AlarmScheduler.ACTION_SNOOZE -> snooze(context, intent)
+            AlarmScheduler.ACTION_DISMISS -> dismiss(context, intent)
+            else -> return
+        }
+    }
 
+    private fun ring(context: Context, intent: Intent, isSnooze: Boolean) {
         val id = intent.getLongExtra(AlarmScheduler.EXTRA_ALARM_ID, -1L)
-        val hour = intent.getIntExtra(AlarmScheduler.EXTRA_HOUR, -1)
-        val minute = intent.getIntExtra(AlarmScheduler.EXTRA_MINUTE, -1)
-        if (id < 0 || hour !in 0..23 || minute !in 0..59) return
+        if (id < 0) return
 
-        val alarm = Alarm(id, hour, minute)
-        if (AlarmStore.load(context).none { it.id == id }) return
-        AlarmScheduler.schedule(context, alarm)
-        showNotification(context, alarm)
+        val alarms = AlarmStore.load(context).toMutableList()
+        val index = alarms.indexOfFirst { it.id == id }
+        if (index < 0) return
+        val storedAlarm = alarms[index]
+        if (!isSnooze && !storedAlarm.enabled) return
+
+        if (!isSnooze) {
+            if (storedAlarm.date != null || storedAlarm.repeatDays.isEmpty()) {
+                alarms[index] = storedAlarm.copy(enabled = false)
+                AlarmStore.save(context, alarms)
+            } else {
+                AlarmScheduler.schedule(context, storedAlarm)
+            }
+        }
+        showNotification(context, storedAlarm)
+    }
+
+    private fun snooze(context: Context, intent: Intent) {
+        val id = intent.getLongExtra(AlarmScheduler.EXTRA_ALARM_ID, -1L)
+        val alarm = AlarmStore.load(context).firstOrNull { it.id == id } ?: return
+        AlarmScheduler.scheduleSnooze(context, alarm)
+        NotificationManagerCompat.from(context).cancel(alarm.id.hashCode())
+    }
+
+    private fun dismiss(context: Context, intent: Intent) {
+        val id = intent.getLongExtra(AlarmScheduler.EXTRA_ALARM_ID, -1L)
+        if (id >= 0) NotificationManagerCompat.from(context).cancel(id.hashCode())
     }
 
     private fun showNotification(context: Context, alarm: Alarm) {
         val manager = context.getSystemService(NotificationManager::class.java)
+        val channelId = if (alarm.soundEnabled) SOUND_CHANNEL_ID else SILENT_CHANNEL_ID
+        val channelName = if (alarm.soundEnabled) {
+            R.string.alarm_channel_sound_name
+        } else {
+            R.string.alarm_channel_silent_name
+        }
+        val channel = NotificationChannel(
+            channelId,
+            context.getString(channelName),
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = context.getString(R.string.alarm_channel_description)
+            enableVibration(false)
+            lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+            if (alarm.soundEnabled) {
+                setSound(
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build(),
+                )
+            } else {
+                setSound(null, null)
+            }
+        }
         manager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID,
-                context.getString(R.string.alarm_channel_name),
-                NotificationManager.IMPORTANCE_HIGH,
-            ).apply {
-                description = context.getString(R.string.alarm_channel_description)
-            },
+            channel,
         )
 
         if (
@@ -46,29 +98,91 @@ class AlarmReceiver : BroadcastReceiver() {
         ) {
             return
         }
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
 
-        val openApp = PendingIntent.getActivity(
+        val activityClass = if (alarm.visualEnabled) {
+            AlarmRingingActivity::class.java
+        } else {
+            MainActivity::class.java
+        }
+        val openAlarm = PendingIntent.getActivity(
             context,
             alarm.id.hashCode(),
-            Intent(context, MainActivity::class.java),
+            Intent(context, activityClass).apply {
+                action = "com.example.clockalarm.OPEN_ALARM"
+                data = Uri.parse("clockalarm://notification/${alarm.id}")
+                putExtra(AlarmScheduler.EXTRA_ALARM_ID, alarm.id)
+                putExtra(AlarmScheduler.EXTRA_HOUR, alarm.hour)
+                putExtra(AlarmScheduler.EXTRA_MINUTE, alarm.minute)
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val dismissAction = actionPendingIntent(
+            context,
+            alarm,
+            AlarmScheduler.ACTION_DISMISS,
+            "dismiss",
+            1,
+        )
+        val snoozeAction = actionPendingIntent(
+            context,
+            alarm,
+            AlarmScheduler.ACTION_SNOOZE,
+            "snooze",
+            2,
+        )
+
+        val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(context.getString(R.string.app_name))
             .setContentText("%02d:%02d".format(alarm.hour, alarm.minute))
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(openApp)
-            .setAutoCancel(true)
-            .build()
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(openAlarm)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                context.getString(R.string.dismiss_alarm),
+                dismissAction,
+            )
+            .addAction(
+                android.R.drawable.ic_lock_idle_alarm,
+                context.getString(R.string.snooze_alarm),
+                snoozeAction,
+            )
 
-        if (NotificationManagerCompat.from(context).areNotificationsEnabled()) {
-            NotificationManagerCompat.from(context).notify(alarm.id.hashCode(), notification)
+        if (
+            alarm.visualEnabled &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+                manager.canUseFullScreenIntent())
+        ) {
+            notification.setFullScreenIntent(openAlarm, true)
         }
+        NotificationManagerCompat.from(context).notify(alarm.id.hashCode(), notification.build())
     }
 
+    private fun actionPendingIntent(
+        context: Context,
+        alarm: Alarm,
+        action: String,
+        path: String,
+        requestCodeOffset: Int,
+    ): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            alarm.id.hashCode() + requestCodeOffset,
+            Intent(context, AlarmReceiver::class.java).apply {
+                this.action = action
+                data = Uri.parse("clockalarm://$path/${alarm.id}")
+                putExtra(AlarmScheduler.EXTRA_ALARM_ID, alarm.id)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
     companion object {
-        const val CHANNEL_ID = "daily_alarms"
+        const val SOUND_CHANNEL_ID = "alarms_with_sound"
+        const val SILENT_CHANNEL_ID = "alarms_silent"
     }
 }

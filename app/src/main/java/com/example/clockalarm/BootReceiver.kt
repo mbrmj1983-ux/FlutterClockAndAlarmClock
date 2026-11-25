@@ -7,7 +7,7 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
-        AlarmStore.load(context).forEach { alarm ->
+        AlarmStore.load(context).filter(Alarm::enabled).forEach { alarm ->
             AlarmScheduler.schedule(context, alarm)
         }
     }

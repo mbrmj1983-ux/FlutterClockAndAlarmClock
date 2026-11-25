@@ -1,12 +1,23 @@
 package com.example.clockalarm
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
+import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
 class AlarmTimeTest {
     private val zone = ZoneId.of("UTC")
+
+    @Test
+    fun hijriDateFormatterUsesUmmAlQuraCalendar() {
+        assertEquals(
+            "1 رمضان 1445 هـ",
+            HijriDateFormatter.format(LocalDate.of(2024, 3, 11)),
+        )
+    }
 
     @Test
     fun nextAlarmTimeUsesTodayWhenAlarmIsStillAhead() {
@@ -22,5 +33,104 @@ class AlarmTimeTest {
         val expected = ZonedDateTime.of(2026, 1, 3, 9, 15, 0, 0, zone)
 
         assertEquals(expected.toInstant().toEpochMilli(), nextAlarmTimeMillis(9, 15, now))
+    }
+
+    @Test
+    fun nextAlarmTimeSkipsToNextSelectedWeekday() {
+        val now = ZonedDateTime.of(2026, 1, 2, 9, 15, 0, 0, zone)
+        val alarm = Alarm(1, 8, 0, repeatDays = setOf(DayOfWeek.MONDAY))
+        val expected = ZonedDateTime.of(2026, 1, 5, 8, 0, 0, 0, zone)
+
+        assertEquals(expected.toInstant().toEpochMilli(), nextAlarmTimeMillis(alarm, now))
+    }
+
+    @Test
+    fun calendarAlarmDoesNotRollOverWhenItsDateHasPassed() {
+        val now = ZonedDateTime.of(2026, 1, 2, 9, 15, 0, 0, zone)
+        val alarm = Alarm(1, 8, 0, date = LocalDate.of(2026, 1, 2))
+
+        assertNull(nextAlarmTimeMillis(alarm, now))
+    }
+
+    @Test
+    fun calendarAlarmUsesTheSelectedDate() {
+        val now = ZonedDateTime.of(2026, 1, 2, 9, 15, 0, 0, zone)
+        val alarm = Alarm(1, 8, 0, date = LocalDate.of(2026, 1, 3))
+        val expected = ZonedDateTime.of(2026, 1, 3, 8, 0, 0, 0, zone)
+
+        assertEquals(expected.toInstant().toEpochMilli(), nextAlarmTimeMillis(alarm, now))
+    }
+
+    @Test
+    fun alarmStoreReadsLegacyAlarmsAsDaily() {
+        assertEquals(
+            Alarm(42, 6, 30),
+            decodeAlarm("42|6|30"),
+        )
+    }
+
+    @Test
+    fun alarmStoreReadsPreSoundSettingsAsEnabled() {
+        assertEquals(
+            Alarm(
+                id = 42,
+                hour = 6,
+                minute = 30,
+                repeatDays = setOf(DayOfWeek.MONDAY),
+                date = LocalDate.of(2026, 2, 1),
+            ),
+            decodeAlarm("42|6|30|true|1|2026-02-01"),
+        )
+    }
+
+    @Test
+    fun alarmStoreRoundTripsAlarmOptions() {
+        val alarm = Alarm(
+            id = 42,
+            hour = 6,
+            minute = 30,
+            enabled = false,
+            repeatDays = setOf(DayOfWeek.MONDAY, DayOfWeek.FRIDAY),
+            date = null,
+            visualEnabled = false,
+            soundEnabled = true,
+        )
+
+        assertEquals(alarm, decodeAlarm(encodeAlarm(alarm)))
+    }
+
+    @Test
+    fun alarmStoreRoundTripsCalendarDate() {
+        val alarm = Alarm(
+            id = 42,
+            hour = 6,
+            minute = 30,
+            repeatDays = emptySet(),
+            date = LocalDate.of(2026, 2, 1),
+            visualEnabled = true,
+            soundEnabled = false,
+        )
+
+        assertEquals(alarm, decodeAlarm(encodeAlarm(alarm)))
+    }
+
+    @Test
+    fun alarmStoreRejectsInvalidRepeatDayValues() {
+        assertNull(decodeAlarm("42|6|30|true|1,8|"))
+    }
+
+    @Test
+    fun alarmStoreRejectsInvalidCalendarDate() {
+        assertNull(decodeAlarm("42|6|30|true||not-a-date"))
+    }
+
+    @Test
+    fun alarmStoreRejectsInvalidAudioSettings() {
+        assertNull(decodeAlarm("42|6|30|true|1|-|invalid|true"))
+    }
+
+    @Test
+    fun snoozeUsesTenMinutesFromTheCurrentTime() {
+        assertEquals(1_000_000L, snoozeTriggerAtMillis(400_000L))
     }
 }

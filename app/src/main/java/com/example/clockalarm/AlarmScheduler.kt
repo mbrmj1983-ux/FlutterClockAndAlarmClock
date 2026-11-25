@@ -9,12 +9,9 @@ import java.time.ZonedDateTime
 
 object AlarmScheduler {
     fun schedule(context: Context, alarm: Alarm) {
-        val triggerAtMillis = nextAlarmTimeMillis(
-            alarm.hour,
-            alarm.minute,
-            ZonedDateTime.now(),
-        )
-        val pendingIntent = pendingIntent(context, alarm)
+        if (!alarm.enabled) return
+        val triggerAtMillis = nextAlarmTimeMillis(alarm, ZonedDateTime.now()) ?: return
+        val pendingIntent = pendingIntent(context, alarm, ACTION_RING)
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         alarmManager.setAndAllowWhileIdle(
             AlarmManager.RTC_WAKEUP,
@@ -23,15 +20,31 @@ object AlarmScheduler {
         )
     }
 
-    fun cancel(context: Context, alarm: Alarm) {
+    fun scheduleSnooze(context: Context, alarm: Alarm) {
         val alarmManager = context.getSystemService(AlarmManager::class.java)
-        alarmManager.cancel(pendingIntent(context, alarm))
+        alarmManager.setAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP,
+            snoozeTriggerAtMillis(System.currentTimeMillis()),
+            pendingIntent(context, alarm, ACTION_RING_SNOOZED),
+        )
     }
 
-    private fun pendingIntent(context: Context, alarm: Alarm): PendingIntent {
+    fun cancel(context: Context, alarm: Alarm) {
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        alarmManager.cancel(pendingIntent(context, alarm, ACTION_RING))
+        alarmManager.cancel(pendingIntent(context, alarm, ACTION_RING_SNOOZED))
+    }
+
+    private fun pendingIntent(context: Context, alarm: Alarm, action: String): PendingIntent {
         val intent = Intent(context, AlarmReceiver::class.java).apply {
-            action = ACTION_RING
-            data = Uri.parse("clockalarm://alarm/${alarm.id}")
+            this.action = action
+            data = Uri.parse(
+                if (action == ACTION_RING) {
+                    "clockalarm://alarm/${alarm.id}"
+                } else {
+                    "clockalarm://snooze/${alarm.id}"
+                },
+            )
             putExtra(EXTRA_ALARM_ID, alarm.id)
             putExtra(EXTRA_HOUR, alarm.hour)
             putExtra(EXTRA_MINUTE, alarm.minute)
@@ -45,6 +58,9 @@ object AlarmScheduler {
     }
 
     const val ACTION_RING = "com.example.clockalarm.RING"
+    const val ACTION_RING_SNOOZED = "com.example.clockalarm.RING_SNOOZED"
+    const val ACTION_SNOOZE = "com.example.clockalarm.SNOOZE"
+    const val ACTION_DISMISS = "com.example.clockalarm.DISMISS"
     const val EXTRA_ALARM_ID = "alarm_id"
     const val EXTRA_HOUR = "alarm_hour"
     const val EXTRA_MINUTE = "alarm_minute"

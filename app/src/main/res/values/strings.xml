@@ -2,4 +2,11 @@
     <string name="app_name">ساعة ومنبّه</string>
     <string name="alarm_channel_name">المنبّهات</string>
     <string name="alarm_channel_description">إشعارات المنبّهات اليومية</string>
+    <string name="alarm_channel_sound_name">منبّه مع صوت</string>
+    <string name="alarm_channel_silent_name">منبّه صامت</string>
+    <string name="alarm_ringing_title">حان وقت المنبّه</string>
+    <string name="alarm_ringing_message">يمكنك إيقاف التنبيه أو تأجيله عشر دقائق.</string>
+    <string name="dismiss_alarm">إيقاف</string>
+    <string name="snooze_alarm">غفوة 10 دقائق</string>
+    <string name="hijri_date">التاريخ الهجري: %1$s</string>
 </resources>
