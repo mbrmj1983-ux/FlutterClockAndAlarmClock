@@ -3,6 +3,7 @@ package com.example.clockalarm
 import android.Manifest
 import android.app.NotificationManager
 import android.content.Intent
+import android.content.ActivityNotFoundException
 import android.os.Build
 import android.os.Bundle
 import android.net.Uri
@@ -34,8 +35,10 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,6 +53,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,18 +96,49 @@ private fun ClockScreen() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val alarms = remember { mutableStateListOf<Alarm>().apply { addAll(AlarmStore.load(context)) } }
+    val saveableStateHolder = rememberSaveableStateHolder()
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { }
+    var selectedRoute by rememberSaveable { mutableStateOf(AppSection.CLOCK.route) }
     var currentTime by remember { mutableStateOf(LocalDateTime.now()) }
     var currentInstant by remember { mutableStateOf(Instant.now()) }
     var showAlarmEditor by remember { mutableStateOf(false) }
     var editingAlarmId by remember { mutableStateOf<Long?>(null) }
+    var overlayPermission by remember {
+        mutableStateOf(OverlayPermissionState(Settings.canDrawOverlays(context)))
+    }
+    var overlaySettingsError by remember { mutableStateOf<String?>(null) }
+    var floatingClockRunning by remember { mutableStateOf(FloatingClockState.isRunning(context)) }
+    var floatingClockError by remember { mutableStateOf(FloatingClockState.lastError(context)) }
+    var enableOverlayAfterPermission by remember { mutableStateOf(false) }
+    val overlaySettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        overlayPermission = OverlayPermissionState(Settings.canDrawOverlays(context))
+        overlaySettingsError = null
+        if (overlayPermission.granted && enableOverlayAfterPermission) {
+            floatingClockError = startFloatingClock(context)
+        } else if (!overlayPermission.granted && enableOverlayAfterPermission) {
+            floatingClockError = "لم يُمنح الإذن؛ لم تبدأ الساعة العائمة."
+        } else if (!overlayPermission.granted && FloatingClockState.isRunning(context)) {
+            stopFloatingClock(context)
+            floatingClockRunning = false
+        }
+        enableOverlayAfterPermission = false
+    }
     DisposableEffect(lifecycleOwner, context) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 alarms.clear()
                 alarms.addAll(AlarmStore.load(context))
+                overlayPermission = OverlayPermissionState(Settings.canDrawOverlays(context))
+                floatingClockRunning = FloatingClockState.isRunning(context)
+                if (!overlayPermission.granted && floatingClockRunning) {
+                    stopFloatingClock(context)
+                    floatingClockRunning = false
+                }
+                floatingClockError = FloatingClockState.lastError(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -118,105 +154,119 @@ private fun ClockScreen() {
         }
     }
 
-    Surface(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 32.dp)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Spacer(modifier = Modifier.height(32.dp))
-            Text(
-                text = "الساعة الآن",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            AnalogClock(
-                time = currentTime,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = currentTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")),
-                style = MaterialTheme.typography.displayLarge,
-                fontWeight = FontWeight.Light,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                text = currentTime.format(
-                    DateTimeFormatter.ofPattern("EEEE، d MMMM yyyy", Locale("ar")),
-                ),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = stringResource(
-                    R.string.hijri_date,
-                    HijriDateFormatter.format(currentTime.toLocalDate()),
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            WorldClockDashboard(now = currentInstant)
-            Spacer(modifier = Modifier.height(12.dp))
-            PrayerDashboard(now = currentInstant)
-            Spacer(modifier = Modifier.height(36.dp))
+    fun openOverlayPermissionSettings(enableAfterGrant: Boolean) {
+        enableOverlayAfterPermission = enableAfterGrant
+        val intent = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:${context.packageName}"),
+        )
+        try {
+            overlaySettingsLauncher.launch(intent)
+            overlaySettingsError = null
+        } catch (exception: ActivityNotFoundException) {
+            enableOverlayAfterPermission = false
+            overlaySettingsError = "تعذر فتح إعدادات الظهور فوق التطبيقات على هذا الجهاز."
+        }
+    }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text("المنبّهات", style = MaterialTheme.typography.titleLarge)
-                Button(
-                    onClick = {
-                        editingAlarmId = null
-                        showAlarmEditor = true
-                    },
-                ) {
-                    Text("إضافة منبّه")
+    fun changeFloatingClock(enabled: Boolean) {
+        when (
+            OverlayWindowPolicy.action(
+                requestedEnabled = enabled,
+                permissionGranted = overlayPermission.granted,
+                isRunning = floatingClockRunning,
+            )
+        ) {
+            OverlayWindowAction.REQUEST_PERMISSION -> openOverlayPermissionSettings(enableAfterGrant = true)
+            OverlayWindowAction.START -> {
+                floatingClockError = startFloatingClock(context)
+                overlaySettingsError = null
+            }
+            OverlayWindowAction.STOP -> {
+                stopFloatingClock(context)
+                floatingClockRunning = false
+                floatingClockError = null
+            }
+            OverlayWindowAction.NO_CHANGE -> Unit
+        }
+    }
+
+    LaunchedEffect(selectedRoute) {
+        if (AppSection.fromRoute(selectedRoute) == AppSection.ALARMS_SETTINGS) {
+            while (true) {
+                floatingClockRunning = FloatingClockState.isRunning(context)
+                floatingClockError = FloatingClockState.lastError(context)
+                overlayPermission = OverlayPermissionState(Settings.canDrawOverlays(context))
+                delay(500)
+            }
+        }
+    }
+
+    val selectedSection = AppSection.fromRoute(selectedRoute)
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        bottomBar = {
+            NavigationBar {
+                AppSection.values().forEach { section ->
+                    NavigationBarItem(
+                        selected = section == selectedSection,
+                        onClick = { selectedRoute = section.route },
+                        icon = { Text(section.glyph) },
+                        label = { Text(section.label) },
+                        alwaysShowLabel = true,
+                    )
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (alarms.isEmpty()) {
-                Text(
-                    text = "لا توجد منبّهات بعد",
-                    modifier = Modifier.padding(vertical = 24.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    alarms.forEach { alarm ->
-                        AlarmCard(
-                            alarm = alarm,
-                            onEdit = {
-                                editingAlarmId = alarm.id
-                                showAlarmEditor = true
-                            },
-                            onEnabledChange = { enabled ->
-                                val updated = alarm.copy(enabled = enabled)
-                                val index = alarms.indexOfFirst { it.id == alarm.id }
-                                if (index >= 0) alarms[index] = updated
-                                AlarmStore.save(context, alarms)
-                                if (enabled) {
-                                    AlarmScheduler.schedule(context, updated)
-                                } else {
-                                    AlarmScheduler.cancel(context, alarm)
-                                }
-                            },
-                            onDelete = {
+        },
+    ) { contentPadding ->
+        saveableStateHolder.SaveableStateProvider(selectedSection.route) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(contentPadding)
+                    .padding(horizontal = 20.dp, vertical = 16.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                when (selectedSection) {
+                    AppSection.CLOCK -> ClockHomeScreen(currentTime)
+                    AppSection.PRAYER_TIMES -> PrayerDashboard(now = currentInstant)
+                    AppSection.WORLD_CLOCK -> WorldClockDashboard(now = currentInstant)
+                    AppSection.ALARMS_SETTINGS -> AlarmsSettingsScreen(
+                        alarms = alarms,
+                        overlayPermission = overlayPermission,
+                        overlaySettingsError = overlaySettingsError,
+                        floatingClockRunning = floatingClockRunning,
+                        floatingClockError = floatingClockError,
+                        onManageOverlayPermission = {
+                            openOverlayPermissionSettings(enableAfterGrant = false)
+                        },
+                        onFloatingClockChange = ::changeFloatingClock,
+                        onAddAlarm = {
+                            editingAlarmId = null
+                            showAlarmEditor = true
+                        },
+                        onEditAlarm = { alarm ->
+                            editingAlarmId = alarm.id
+                            showAlarmEditor = true
+                        },
+                        onAlarmEnabledChange = { alarm, enabled ->
+                            val updated = alarm.copy(enabled = enabled)
+                            val index = alarms.indexOfFirst { it.id == alarm.id }
+                            if (index >= 0) alarms[index] = updated
+                            AlarmStore.save(context, alarms)
+                            if (enabled) {
+                                AlarmScheduler.schedule(context, updated)
+                            } else {
                                 AlarmScheduler.cancel(context, alarm)
-                                alarms.remove(alarm)
-                                AlarmStore.save(context, alarms)
-                            },
-                        )
-                    }
+                            }
+                        },
+                        onDeleteAlarm = { alarm ->
+                            AlarmScheduler.cancel(context, alarm)
+                            alarms.remove(alarm)
+                            AlarmStore.save(context, alarms)
+                        },
+                    )
                 }
             }
         }
@@ -264,6 +314,153 @@ private fun ClockScreen() {
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun ClockHomeScreen(currentTime: LocalDateTime) {
+    Spacer(modifier = Modifier.height(16.dp))
+    Text(
+        text = "الساعة الآن",
+        style = MaterialTheme.typography.titleLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    AnalogClock(
+        time = currentTime,
+        modifier = Modifier.padding(top = 12.dp),
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    Text(
+        text = currentTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")),
+        style = MaterialTheme.typography.displayLarge,
+        fontWeight = FontWeight.Light,
+        color = MaterialTheme.colorScheme.primary,
+    )
+    Text(
+        text = currentTime.format(
+            DateTimeFormatter.ofPattern("EEEE، d MMMM yyyy", Locale("ar")),
+        ),
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Text(
+        text = stringResource(
+            R.string.hijri_date,
+            HijriDateFormatter.format(currentTime.toLocalDate()),
+        ),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(modifier = Modifier.height(16.dp))
+}
+
+@Composable
+private fun AlarmsSettingsScreen(
+    alarms: List<Alarm>,
+    overlayPermission: OverlayPermissionState,
+    overlaySettingsError: String?,
+    floatingClockRunning: Boolean,
+    floatingClockError: String?,
+    onManageOverlayPermission: () -> Unit,
+    onFloatingClockChange: (Boolean) -> Unit,
+    onAddAlarm: () -> Unit,
+    onEditAlarm: (Alarm) -> Unit,
+    onAlarmEnabledChange: (Alarm, Boolean) -> Unit,
+    onDeleteAlarm: (Alarm) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("المنبّهات والإعدادات", style = MaterialTheme.typography.titleLarge)
+            Button(onClick = onAddAlarm) { Text("إضافة منبّه") }
+        }
+        OverlayPermissionCard(
+            state = overlayPermission,
+            overlayWindowRunning = floatingClockRunning,
+            settingsError = overlaySettingsError,
+            serviceError = floatingClockError,
+            onManagePermission = onManageOverlayPermission,
+            onWindowChange = onFloatingClockChange,
+        )
+        if (alarms.isEmpty()) {
+            Text(
+                text = "لا توجد منبّهات بعد",
+                modifier = Modifier.padding(vertical = 24.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            alarms.forEach { alarm ->
+                AlarmCard(
+                    alarm = alarm,
+                    onEdit = { onEditAlarm(alarm) },
+                    onEnabledChange = { enabled -> onAlarmEnabledChange(alarm, enabled) },
+                    onDelete = { onDeleteAlarm(alarm) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OverlayPermissionCard(
+    state: OverlayPermissionState,
+    overlayWindowRunning: Boolean,
+    settingsError: String?,
+    serviceError: String?,
+    onManagePermission: () -> Unit,
+    onWindowChange: (Boolean) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("الساعة العائمة", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "النافذة: ${if (overlayWindowRunning) "نشطة" else "متوقفة"}",
+                        color = if (state.granted) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "إذن النظام: ${state.statusLabel}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = overlayWindowRunning,
+                    onCheckedChange = onWindowChange,
+                )
+            }
+            Text(
+                "تظهر ساعة قابلة للسحب فوق التطبيقات مع إشعار دائم. منح إذن SYSTEM_ALERT_WINDOW " +
+                    "يتطلب موافقتك في إعداد Android؛ يمكنك إيقاف النافذة من هذا المفتاح أو من الإشعار.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = onManagePermission) {
+                Text(if (state.granted) "إدارة إذن الظهور فوق التطبيقات" else "تفعيل إذن الظهور فوق التطبيقات")
+            }
+            settingsError?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            serviceError?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }
 
