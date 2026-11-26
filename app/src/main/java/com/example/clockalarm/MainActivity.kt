@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -347,7 +348,20 @@ private fun ClockScreen() {
         AlarmEditorDialog(
             existing = alarms.firstOrNull { it.id == editingAlarmId },
             onDismiss = { showAlarmEditor = false },
-            onSave = { hour, minute, label, linkUrl, linkLabel, linkButtonColor, date, repeatDays, recurrence, soundEnabled ->
+            onSave = {
+                    hour,
+                    minute,
+                    label,
+                    linkUrl,
+                    linkLabel,
+                    linkButtonColor,
+                    linkTargetType,
+                    linkTarget,
+                    date,
+                    repeatDays,
+                    recurrence,
+                    soundEnabled,
+                ->
                 val existing = alarms.firstOrNull { it.id == editingAlarmId }
                 val updated = existing?.copy(
                     hour = hour,
@@ -356,6 +370,8 @@ private fun ClockScreen() {
                     linkUrl = linkUrl,
                     linkLabel = linkLabel,
                     linkButtonColor = linkButtonColor,
+                    linkTargetType = linkTargetType,
+                    linkTarget = linkTarget,
                     repeatDays = repeatDays,
                     date = date,
                     visualEnabled = true,
@@ -369,6 +385,8 @@ private fun ClockScreen() {
                     linkUrl = linkUrl,
                     linkLabel = linkLabel,
                     linkButtonColor = linkButtonColor,
+                    linkTargetType = linkTargetType,
+                    linkTarget = linkTarget,
                     repeatDays = repeatDays,
                     date = date,
                     visualEnabled = true,
@@ -738,16 +756,22 @@ private fun AlarmCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                val linkUrl = alarm.linkUrl
                 val linkLabel = alarm.linkLabel
-                if (!linkUrl.isNullOrBlank() && !linkLabel.isNullOrBlank()) {
+                if (alarm.hasActionTarget()) {
                     Button(
-                        onClick = { openAlarmLink(context, linkUrl) },
+                        onClick = {
+                            openAlarmAction(
+                                context,
+                                alarm.actionTargetType,
+                                alarm.linkUrl,
+                                alarm.linkTarget,
+                            )
+                        },
                         colors = alarm.linkButtonColor?.let {
                             ButtonDefaults.buttonColors(containerColor = Color(it))
                         } ?: ButtonDefaults.buttonColors(),
                     ) {
-                        Text(linkLabel)
+                        Text(linkLabel.orEmpty())
                     }
                 }
             }
@@ -774,6 +798,8 @@ private fun AlarmEditorDialog(
         String?,
         String?,
         Long?,
+        AlarmLinkTargetType?,
+        String?,
         LocalDate?,
         Set<DayOfWeek>,
         AlarmRecurrence,
@@ -802,9 +828,34 @@ private fun AlarmEditorDialog(
     var linkUrl by remember { mutableStateOf(existing?.linkUrl.orEmpty()) }
     var linkLabel by remember { mutableStateOf(existing?.linkLabel.orEmpty()) }
     var linkButtonColor by remember { mutableStateOf(existing?.linkButtonColor) }
+    var linkTargetType by remember {
+        mutableStateOf(existing?.actionTargetType)
+    }
+    var linkTarget by remember { mutableStateOf(existing?.linkTarget) }
+    var showAppPicker by remember { mutableStateOf(false) }
     var soundEnabled by remember { mutableStateOf(existing?.soundEnabled ?: false) }
     var showInvalidDate by remember { mutableStateOf(false) }
     var showInvalidLink by remember { mutableStateOf(false) }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+                linkTargetType = AlarmLinkTargetType.FILE
+                linkTarget = uri.toString()
+                linkUrl = ""
+                linkLabel = alarmDocumentName(context, uri)
+                showInvalidLink = false
+            } catch (_: SecurityException) {
+                Toast.makeText(context, R.string.file_permission_unavailable, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    val availableApps = remember(showAppPicker) {
+        if (showAppPicker) launchableAlarmApps(context) else emptyList()
+    }
     val fullScreenPermissionMissing =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
             !context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
@@ -829,18 +880,92 @@ private fun AlarmEditorDialog(
                     label = { Text("تسمية (اختيارية)") },
                     singleLine = true,
                 )
-                OutlinedTextField(
-                    value = linkUrl,
-                    onValueChange = {
-                        linkUrl = it
-                        showInvalidLink = false
-                    },
+                Text(
+                    "زر يفتح وجهة عند الضغط عليه",
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("رابط ويب (اختياري)") },
-                    placeholder = { Text("https://youtu.be/… أو example.com") },
-                    singleLine = true,
+                    style = MaterialTheme.typography.titleSmall,
                 )
-                if (linkUrl.isNotBlank()) {
+                val targetTypes = listOf(
+                    null to "بدون زر",
+                    AlarmLinkTargetType.WEB to "ويب",
+                    AlarmLinkTargetType.APP to "تطبيق",
+                    AlarmLinkTargetType.FILE to "ملف",
+                    AlarmLinkTargetType.OTHER to "رابط آخر",
+                )
+                targetTypes.chunked(3).forEach { rowTypes ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        rowTypes.forEach { (type, title) ->
+                            FilterChip(
+                                selected = linkTargetType == type,
+                                onClick = {
+                                    if (linkTargetType != type) {
+                                        linkTargetType = type
+                                        linkUrl = ""
+                                        linkTarget = null
+                                        linkLabel = ""
+                                        showInvalidLink = false
+                                    }
+                                    if (type == AlarmLinkTargetType.APP) showAppPicker = true
+                                    if (type == AlarmLinkTargetType.FILE) {
+                                        filePicker.launch(arrayOf("*/*"))
+                                    }
+                                },
+                                label = { Text(title) },
+                            )
+                        }
+                    }
+                }
+                when (linkTargetType) {
+                    AlarmLinkTargetType.WEB,
+                    AlarmLinkTargetType.OTHER,
+                    -> OutlinedTextField(
+                        value = linkUrl,
+                        onValueChange = {
+                            linkUrl = it
+                            showInvalidLink = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = {
+                            Text(
+                                if (linkTargetType == AlarmLinkTargetType.WEB) {
+                                    "رابط ويب"
+                                } else {
+                                    "رابط تطبيق أو خدمة"
+                                },
+                            )
+                        },
+                        placeholder = {
+                            Text(
+                                if (linkTargetType == AlarmLinkTargetType.WEB) {
+                                    "https://youtu.be/… أو example.com"
+                                } else {
+                                    "mailto: أو tel: أو geo: أو market:"
+                                },
+                            )
+                        },
+                        singleLine = true,
+                    )
+                    AlarmLinkTargetType.APP -> OutlinedButton(
+                        onClick = { showAppPicker = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(linkLabel.takeIf(String::isNotBlank) ?: "اختيار تطبيق")
+                    }
+                    AlarmLinkTargetType.FILE -> OutlinedButton(
+                        onClick = { filePicker.launch(arrayOf("*/*")) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(linkLabel.takeIf(String::isNotBlank) ?: "اختيار ملف")
+                    }
+                    null -> Unit
+                }
+                val actionConfigured = when (linkTargetType) {
+                    AlarmLinkTargetType.WEB -> normalizeWebUrl(linkUrl) != null
+                    AlarmLinkTargetType.OTHER -> normalizeOtherAlarmTarget(linkUrl) != null
+                    AlarmLinkTargetType.APP, AlarmLinkTargetType.FILE -> !linkTarget.isNullOrBlank()
+                    null -> false
+                }
+                if (linkTargetType != null && actionConfigured) {
                     OutlinedTextField(
                         value = linkLabel,
                         onValueChange = {
@@ -848,7 +973,7 @@ private fun AlarmEditorDialog(
                             showInvalidLink = false
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("تسمية زر الرابط") },
+                        label = { Text("تسمية الزر") },
                         singleLine = true,
                     )
                     val linkColors = listOf(
@@ -860,7 +985,7 @@ private fun AlarmEditorDialog(
                         0xFF8C5000L to "برتقالي",
                     )
                     Text(
-                        "لون زر الرابط (اختياري)",
+                        "لون الزر (اختياري)",
                         modifier = Modifier.fillMaxWidth(),
                         style = MaterialTheme.typography.titleSmall,
                     )
@@ -878,7 +1003,7 @@ private fun AlarmEditorDialog(
                 }
                 if (showInvalidLink) {
                     Text(
-                        "أدخل رابط http أو https وتسمية للزر.",
+                        "اختر تطبيقًا أو ملفًا، أو أدخل رابطًا صالحًا وتسمية للزر.",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -1055,11 +1180,19 @@ private fun AlarmEditorDialog(
                         else -> null
                     }
                     val days = if (recurrence == AlarmRecurrence.WEEKLY) repeatDays else emptySet()
-                    val normalizedLink = if (linkUrl.isBlank()) null else normalizeWebUrl(linkUrl)
-                    if (
-                        linkUrl.isNotBlank() &&
-                        (normalizedLink == null || linkLabel.isBlank())
-                    ) {
+                    val normalizedLink = when (linkTargetType) {
+                        AlarmLinkTargetType.WEB ->
+                            linkUrl.takeIf(String::isNotBlank)?.let(::normalizeWebUrl)
+                        AlarmLinkTargetType.OTHER ->
+                            linkUrl.takeIf(String::isNotBlank)?.let(::normalizeOtherAlarmTarget)
+                        else -> null
+                    }
+                    val actionConfigured = when (linkTargetType) {
+                        AlarmLinkTargetType.WEB, AlarmLinkTargetType.OTHER -> normalizedLink != null
+                        AlarmLinkTargetType.APP, AlarmLinkTargetType.FILE -> !linkTarget.isNullOrBlank()
+                        null -> true
+                    }
+                    if (linkTargetType != null && (!actionConfigured || linkLabel.isBlank())) {
                         showInvalidLink = true
                     } else if (recurrence == AlarmRecurrence.WEEKLY && days.isEmpty()) {
                         showInvalidDate = true
@@ -1068,8 +1201,13 @@ private fun AlarmEditorDialog(
                             timePickerState.minute,
                             label.trim().takeIf(String::isNotEmpty),
                             normalizedLink,
-                            linkLabel.trim().takeIf { normalizedLink != null && it.isNotEmpty() },
-                            linkButtonColor.takeIf { normalizedLink != null },
+                            linkLabel.trim().takeIf { linkTargetType != null && it.isNotEmpty() },
+                            linkButtonColor.takeIf { linkTargetType != null },
+                            linkTargetType,
+                            linkTarget.takeIf {
+                                linkTargetType == AlarmLinkTargetType.APP ||
+                                    linkTargetType == AlarmLinkTargetType.FILE
+                            },
                             date,
                             days,
                             recurrence,
@@ -1090,6 +1228,45 @@ private fun AlarmEditorDialog(
         },
         shape = RoundedCornerShape(28.dp),
     )
+
+    if (showAppPicker) {
+        AlertDialog(
+            onDismissRequest = { showAppPicker = false },
+            title = { Text("اختر تطبيقًا") },
+            text = {
+                if (availableApps.isEmpty()) {
+                    Text(stringResource(R.string.no_launchable_apps))
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 420.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        availableApps.forEach { app ->
+                            TextButton(
+                                onClick = {
+                                    linkTargetType = AlarmLinkTargetType.APP
+                                    linkTarget = app.packageName
+                                    linkUrl = ""
+                                    linkLabel = app.label
+                                    showInvalidLink = false
+                                    showAppPicker = false
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(app.label, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAppPicker = false }) {
+                    Text("إلغاء")
+                }
+            },
+        )
+    }
 
     if (showDatePicker) {
         DatePickerDialog(

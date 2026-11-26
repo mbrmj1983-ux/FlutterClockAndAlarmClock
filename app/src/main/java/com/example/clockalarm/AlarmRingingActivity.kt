@@ -48,6 +48,9 @@ class AlarmRingingActivity : ComponentActivity() {
         val alarmLabel = intent.getStringExtra(AlarmScheduler.EXTRA_ALARM_LABEL)?.takeIf(String::isNotBlank)
         val linkUrl = intent.getStringExtra(AlarmScheduler.EXTRA_LINK_URL)
         val linkLabel = intent.getStringExtra(AlarmScheduler.EXTRA_LINK_LABEL)
+        val linkTargetType = intent.getStringExtra(AlarmScheduler.EXTRA_LINK_TARGET_TYPE)
+            ?.let { name -> AlarmLinkTargetType.values().firstOrNull { it.name == name } }
+        val linkTarget = intent.getStringExtra(AlarmScheduler.EXTRA_LINK_TARGET)
         val linkButtonColor = if (intent.hasExtra(AlarmScheduler.EXTRA_LINK_BUTTON_COLOR)) {
             intent.getLongExtra(AlarmScheduler.EXTRA_LINK_BUTTON_COLOR, 0L)
         } else {
@@ -107,10 +110,20 @@ class AlarmRingingActivity : ComponentActivity() {
                             text = getString(R.string.alarm_ringing_message),
                             style = MaterialTheme.typography.bodyLarge,
                         )
-                        if (!linkUrl.isNullOrBlank() && !linkLabel.isNullOrBlank()) {
+                        if (
+                            hasAlarmActionTarget(linkTargetType, linkUrl, linkTarget) &&
+                            !linkLabel.isNullOrBlank()
+                        ) {
                             Spacer(modifier = Modifier.height(16.dp))
                             Button(
-                                onClick = { openAlarmLink(this@AlarmRingingActivity, linkUrl) },
+                                onClick = {
+                                    openAlarmAction(
+                                        this@AlarmRingingActivity,
+                                        linkTargetType,
+                                        linkUrl,
+                                        linkTarget,
+                                    )
+                                },
                                 colors = linkButtonColor?.let {
                                     ButtonDefaults.buttonColors(containerColor = Color(it))
                                 } ?: ButtonDefaults.buttonColors(),

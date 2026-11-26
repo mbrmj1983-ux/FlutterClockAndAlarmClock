@@ -13,6 +13,13 @@ enum class AlarmRecurrence {
     ONCE,
 }
 
+enum class AlarmLinkTargetType {
+    WEB,
+    APP,
+    FILE,
+    OTHER,
+}
+
 data class Alarm(
     val id: Long,
     val hour: Int,
@@ -27,6 +34,8 @@ data class Alarm(
     val linkUrl: String? = null,
     val linkLabel: String? = null,
     val linkButtonColor: Long? = null,
+    val linkTargetType: AlarmLinkTargetType? = null,
+    val linkTarget: String? = null,
 )
 
 internal val Alarm.effectiveRecurrence: AlarmRecurrence

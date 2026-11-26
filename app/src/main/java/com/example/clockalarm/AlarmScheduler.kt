@@ -78,5 +78,7 @@ object AlarmScheduler {
     const val EXTRA_LINK_URL = "alarm_link_url"
     const val EXTRA_LINK_LABEL = "alarm_link_label"
     const val EXTRA_LINK_BUTTON_COLOR = "alarm_link_button_color"
+    const val EXTRA_LINK_TARGET_TYPE = "alarm_link_target_type"
+    const val EXTRA_LINK_TARGET = "alarm_link_target"
     const val EXTRA_SOUND_ENABLED = "alarm_sound_enabled"
 }

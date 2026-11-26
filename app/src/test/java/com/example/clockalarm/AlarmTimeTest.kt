@@ -228,6 +228,48 @@ class AlarmTimeTest {
     }
 
     @Test
+    fun alarmStoreRoundTripsSelectedApplicationTarget() {
+        val alarm = Alarm(
+            id = 42,
+            hour = 6,
+            minute = 30,
+            linkLabel = "فتح التطبيق",
+            linkTargetType = AlarmLinkTargetType.APP,
+            linkTarget = "com.example.calendar",
+        )
+
+        assertEquals(alarm, decodeAlarm(encodeAlarm(alarm)))
+    }
+
+    @Test
+    fun alarmStoreRoundTripsSelectedFileTarget() {
+        val alarm = Alarm(
+            id = 42,
+            hour = 6,
+            minute = 30,
+            linkLabel = "فتح الملف",
+            linkTargetType = AlarmLinkTargetType.FILE,
+            linkTarget = "content://com.example.provider/document/123",
+        )
+
+        assertEquals(alarm, decodeAlarm(encodeAlarm(alarm)))
+    }
+
+    @Test
+    fun alarmStoreRoundTripsOtherSupportedIntentTarget() {
+        val alarm = Alarm(
+            id = 42,
+            hour = 6,
+            minute = 30,
+            linkUrl = "mailto:person@example.com",
+            linkLabel = "إرسال بريد",
+            linkTargetType = AlarmLinkTargetType.OTHER,
+        )
+
+        assertEquals(alarm, decodeAlarm(encodeAlarm(alarm)))
+    }
+
+    @Test
     fun alarmStoreTreatsBlankOptionalLabelAsMissing() {
         val alarm = Alarm(id = 42, hour = 6, minute = 30, label = "  ")
 
@@ -248,6 +290,15 @@ class AlarmTimeTest {
         )
         assertNull(normalizeWebUrl("javascript:alert(1)"))
         assertNull(normalizeWebUrl("https://"))
+    }
+
+    @Test
+    fun otherAlarmTargetsAllowSupportedAndroidSchemesOnly() {
+        assertEquals("mailto:person@example.com", normalizeOtherAlarmTarget("mailto:person@example.com"))
+        assertEquals("tel:+123456789", normalizeOtherAlarmTarget("tel:+123456789"))
+        assertEquals("market://details?id=com.example.app", normalizeOtherAlarmTarget("market://details?id=com.example.app"))
+        assertNull(normalizeOtherAlarmTarget("intent://open#Intent;scheme=x;end"))
+        assertNull(normalizeOtherAlarmTarget("file:///etc/passwd"))
     }
 
     @Test

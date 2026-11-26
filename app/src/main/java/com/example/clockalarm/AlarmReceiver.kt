@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
@@ -121,6 +122,8 @@ class AlarmReceiver : BroadcastReceiver() {
                 putExtra(AlarmScheduler.EXTRA_ALARM_LABEL, alarm.label)
                 putExtra(AlarmScheduler.EXTRA_LINK_URL, alarm.linkUrl)
                 putExtra(AlarmScheduler.EXTRA_LINK_LABEL, alarm.linkLabel)
+                putExtra(AlarmScheduler.EXTRA_LINK_TARGET_TYPE, alarm.linkTargetType?.name)
+                putExtra(AlarmScheduler.EXTRA_LINK_TARGET, alarm.linkTarget)
                 putExtra(AlarmScheduler.EXTRA_SOUND_ENABLED, alarm.soundEnabled)
                 alarm.linkButtonColor?.let {
                     putExtra(AlarmScheduler.EXTRA_LINK_BUTTON_COLOR, it)
@@ -153,13 +156,23 @@ class AlarmReceiver : BroadcastReceiver() {
             .setContentIntent(openAlarm)
             .setOngoing(true)
             .setAutoCancel(false)
-        val linkUrl = alarm.linkUrl?.let(::normalizeWebUrl)
         val linkLabel = alarm.linkLabel?.takeIf(String::isNotBlank)
-        if (linkUrl != null && linkLabel != null) {
+        val targetIntent = try {
+            alarmActionIntent(
+                context,
+                alarm.actionTargetType,
+                alarm.linkUrl,
+                alarm.linkTarget,
+            )
+        } catch (exception: SecurityException) {
+            Log.w("AlarmReceiver", "Selected alarm file is no longer accessible", exception)
+            null
+        }
+        if (targetIntent != null && linkLabel != null) {
             val openLink = PendingIntent.getActivity(
                 context,
                 alarm.id.hashCode() + 3,
-                Intent(Intent.ACTION_VIEW, Uri.parse(linkUrl)),
+                targetIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             notification.addAction(android.R.drawable.ic_menu_view, linkLabel, openLink)
@@ -205,6 +218,8 @@ class AlarmReceiver : BroadcastReceiver() {
                 putExtra(AlarmScheduler.EXTRA_ALARM_LABEL, alarm.label)
                 putExtra(AlarmScheduler.EXTRA_LINK_URL, alarm.linkUrl)
                 putExtra(AlarmScheduler.EXTRA_LINK_LABEL, alarm.linkLabel)
+                putExtra(AlarmScheduler.EXTRA_LINK_TARGET_TYPE, alarm.linkTargetType?.name)
+                putExtra(AlarmScheduler.EXTRA_LINK_TARGET, alarm.linkTarget)
                 putExtra(AlarmScheduler.EXTRA_SOUND_ENABLED, alarm.soundEnabled)
                 alarm.linkButtonColor?.let {
                     putExtra(AlarmScheduler.EXTRA_LINK_BUTTON_COLOR, it)

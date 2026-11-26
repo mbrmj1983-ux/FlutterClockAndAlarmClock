@@ -13,6 +13,15 @@
     <string name="invalid_alarm_link">رابط المنبّه غير صالح؛ استخدم عنوان http أو https.</string>
     <string name="no_browser_for_alarm_link">لا يوجد تطبيق متاح لفتح الرابط.</string>
     <string name="cannot_open_alarm_link">تعذر فتح رابط المنبّه.</string>
+    <string name="alarm_target_unavailable">تعذر الوصول إلى الهدف المحدد؛ تحقق من التطبيق أو الملف.</string>
+    <string name="no_app_for_alarm_target">لا يوجد تطبيق مناسب لفتح الهدف المحدد.</string>
+    <string name="cannot_open_alarm_target">تعذر فتح الهدف المحدد.</string>
+    <string name="open_alarm_target">فتح الهدف باستخدام</string>
+    <string name="selected_alarm_file">ملف محدد</string>
+    <string name="choose_alarm_app">اختر تطبيقًا</string>
+    <string name="choose_alarm_file">اختيار ملف</string>
+    <string name="no_launchable_apps">لم يتم العثور على تطبيقات قابلة للتشغيل.</string>
+    <string name="file_permission_unavailable">تعذر الاحتفاظ بإذن الوصول إلى الملف المحدد.</string>
     <string name="mute_alarm_sound">كتم صوت الرنين</string>
     <string name="enable_alarm_sound">تشغيل صوت الرنين</string>
     <string name="alarm_sound_unavailable">تعذر تشغيل صوت المنبّه على هذا الجهاز.</string>

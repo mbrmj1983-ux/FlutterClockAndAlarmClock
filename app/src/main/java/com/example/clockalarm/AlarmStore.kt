@@ -27,7 +27,7 @@ object AlarmStore {
 
 internal fun decodeAlarm(encoded: String): Alarm? {
     val parts = encoded.split('|')
-    if (parts.size !in setOf(3, 6, 8, 9, 10, 12, 13)) return null
+    if (parts.size !in setOf(3, 6, 8, 9, 10, 12, 13, 15)) return null
     val id = parts[0].toLongOrNull() ?: return null
     val hour = parts[1].toIntOrNull() ?: return null
     val minute = parts[2].toIntOrNull() ?: return null
@@ -51,17 +51,17 @@ internal fun decodeAlarm(encoded: String): Alarm? {
             return null
         }
     }
-    val visualEnabled = if (parts.size in setOf(8, 9, 10, 12, 13)) {
+    val visualEnabled = if (parts.size in setOf(8, 9, 10, 12, 13, 15)) {
         parts[6].toBooleanStrictOrNull() ?: return null
     } else {
         true
     }
-    val soundEnabled = if (parts.size in setOf(8, 9, 10, 12, 13)) {
+    val soundEnabled = if (parts.size in setOf(8, 9, 10, 12, 13, 15)) {
         parts[7].toBooleanStrictOrNull() ?: return null
     } else {
         true
     }
-    val recurrence = if (parts.size in setOf(9, 10, 12, 13) && parts[8].isNotEmpty()) {
+    val recurrence = if (parts.size in setOf(9, 10, 12, 13, 15) && parts[8].isNotEmpty()) {
         try {
             AlarmRecurrence.valueOf(parts[8])
         } catch (_: IllegalArgumentException) {
@@ -76,8 +76,31 @@ internal fun decodeAlarm(encoded: String): Alarm? {
     val linkButtonColor = parts.getOrNull(12)?.takeIf(String::isNotEmpty)?.let {
         it.toLongOrNull() ?: return null
     }
+    val linkTargetType = parts.getOrNull(13)?.takeIf(String::isNotEmpty)?.let {
+        try {
+            AlarmLinkTargetType.valueOf(it)
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+    }
+    val linkTarget = decodeOptionalText(parts.getOrNull(14))?.value
     val label = decodedLabel.value
-    val linkUrl = decodedLinkUrl.value?.let(::normalizeWebUrl)
+    val rawLinkUrl = decodedLinkUrl.value
+    val linkUrl = when (linkTargetType) {
+        AlarmLinkTargetType.OTHER -> rawLinkUrl?.let(::normalizeOtherAlarmTarget)
+        else -> rawLinkUrl?.let(::normalizeWebUrl)
+    }
+    if (rawLinkUrl != null && linkUrl == null) return null
+    if (linkTargetType in setOf(AlarmLinkTargetType.APP, AlarmLinkTargetType.FILE) && linkTarget == null) {
+        return null
+    }
+    if (
+        linkTargetType == AlarmLinkTargetType.APP &&
+        linkTarget?.matches(Regex("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+")) != true
+    ) return null
+    if (linkTargetType == AlarmLinkTargetType.FILE && !linkTarget.orEmpty().startsWith("content://")) {
+        return null
+    }
     val linkLabel = decodedLinkLabel.value
     return Alarm(
         id,
@@ -93,6 +116,8 @@ internal fun decodeAlarm(encoded: String): Alarm? {
         linkUrl,
         linkLabel,
         linkButtonColor,
+        linkTargetType,
+        linkTarget,
     )
 }
 
@@ -111,9 +136,16 @@ internal fun encodeAlarm(alarm: Alarm): String {
         alarm.soundEnabled.toString(),
         alarm.recurrence?.name.orEmpty(),
         encodeOptionalText(alarm.label),
-        encodeOptionalText(alarm.linkUrl?.let(::normalizeWebUrl)),
+        encodeOptionalText(
+            when (alarm.linkTargetType) {
+                AlarmLinkTargetType.OTHER -> alarm.linkUrl?.let(::normalizeOtherAlarmTarget)
+                else -> alarm.linkUrl?.let(::normalizeWebUrl)
+            },
+        ),
         encodeOptionalText(alarm.linkLabel),
         alarm.linkButtonColor?.toString().orEmpty(),
+        alarm.linkTargetType?.name.orEmpty(),
+        encodeOptionalText(alarm.linkTarget),
     ).joinToString("|")
 }
 
