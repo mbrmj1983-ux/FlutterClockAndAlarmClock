@@ -118,6 +118,16 @@ private fun ClockScreen() {
     var floatingClockRunning by remember { mutableStateOf(FloatingClockState.isRunning(context)) }
     var floatingClockError by remember { mutableStateOf(FloatingClockState.lastError(context)) }
     var enableOverlayAfterPermission by remember { mutableStateOf(false) }
+    var notificationPolicyAccess by remember {
+        mutableStateOf(
+            context.getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted,
+        )
+    }
+    var bypassDndEnabled by remember {
+        mutableStateOf(AlarmAudioSettings.bypassDndEnabled(context))
+    }
+    var alarmAudioSettingsError by remember { mutableStateOf<String?>(null) }
+    var enableDndBypassAfterSettings by remember { mutableStateOf(false) }
     val overlaySettingsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
@@ -133,11 +143,34 @@ private fun ClockScreen() {
         }
         enableOverlayAfterPermission = false
     }
+    val notificationPolicyLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        notificationPolicyAccess =
+            context.getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
+        if (enableDndBypassAfterSettings && notificationPolicyAccess) {
+            AlarmAudioSettings.setBypassDndEnabled(context, true)
+            bypassDndEnabled = true
+            alarmAudioSettingsError = null
+        } else if (enableDndBypassAfterSettings) {
+            AlarmAudioSettings.setBypassDndEnabled(context, false)
+            bypassDndEnabled = false
+            alarmAudioSettingsError = "لم يُمنح إذن تجاوز وضع عدم الإزعاج."
+        }
+        enableDndBypassAfterSettings = false
+    }
     DisposableEffect(lifecycleOwner, context) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 alarms.clear()
                 alarms.addAll(AlarmStore.load(context))
+                notificationPolicyAccess =
+                    context.getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
+                bypassDndEnabled =
+                    AlarmAudioSettings.bypassDndEnabled(context) && notificationPolicyAccess
+                if (!notificationPolicyAccess) {
+                    AlarmAudioSettings.setBypassDndEnabled(context, false)
+                }
                 overlayPermission = OverlayPermissionState(Settings.canDrawOverlays(context))
                 floatingClockRunning = FloatingClockState.isRunning(context)
                 if (!overlayPermission.granted && floatingClockRunning) {
@@ -149,6 +182,32 @@ private fun ClockScreen() {
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    fun changeDndBypass(enabled: Boolean) {
+        alarmAudioSettingsError = null
+        if (!enabled) {
+            AlarmAudioSettings.setBypassDndEnabled(context, false)
+            bypassDndEnabled = false
+            return
+        }
+        val manager = context.getSystemService(NotificationManager::class.java)
+        if (manager.isNotificationPolicyAccessGranted) {
+            AlarmAudioSettings.setBypassDndEnabled(context, true)
+            bypassDndEnabled = true
+            notificationPolicyAccess = true
+            return
+        }
+        enableDndBypassAfterSettings = true
+        try {
+            notificationPolicyLauncher.launch(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+        } catch (_: ActivityNotFoundException) {
+            enableDndBypassAfterSettings = false
+            alarmAudioSettingsError = "تعذر فتح إعدادات الوصول إلى وضع عدم الإزعاج."
+        } catch (_: SecurityException) {
+            enableDndBypassAfterSettings = false
+            alarmAudioSettingsError = "منع Android فتح إعدادات الوصول إلى وضع عدم الإزعاج."
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -240,6 +299,10 @@ private fun ClockScreen() {
                     AppSection.WORLD_CLOCK -> WorldClockDashboard(now = currentInstant)
                     AppSection.ALARMS_SETTINGS -> AlarmsSettingsScreen(
                         alarms = alarms,
+                        bypassDndEnabled = bypassDndEnabled,
+                        notificationPolicyAccess = notificationPolicyAccess,
+                        alarmAudioSettingsError = alarmAudioSettingsError,
+                        onDndBypassChange = ::changeDndBypass,
                         overlayPermission = overlayPermission,
                         overlaySettingsError = overlaySettingsError,
                         floatingClockRunning = floatingClockRunning,
@@ -374,6 +437,10 @@ private fun ClockHomeScreen(currentTime: LocalDateTime) {
 @Composable
 private fun AlarmsSettingsScreen(
     alarms: List<Alarm>,
+    bypassDndEnabled: Boolean,
+    notificationPolicyAccess: Boolean,
+    alarmAudioSettingsError: String?,
+    onDndBypassChange: (Boolean) -> Unit,
     overlayPermission: OverlayPermissionState,
     overlaySettingsError: String?,
     floatingClockRunning: Boolean,
@@ -394,6 +461,12 @@ private fun AlarmsSettingsScreen(
             Text("المنبّهات والإعدادات", style = MaterialTheme.typography.titleLarge)
             Button(onClick = onAddAlarm) { Text("إضافة منبّه") }
         }
+        AlarmAudioPolicyCard(
+            bypassDndEnabled = bypassDndEnabled,
+            notificationPolicyAccess = notificationPolicyAccess,
+            error = alarmAudioSettingsError,
+            onEnabledChange = onDndBypassChange,
+        )
         OverlayPermissionCard(
             state = overlayPermission,
             overlayWindowRunning = floatingClockRunning,
@@ -416,6 +489,58 @@ private fun AlarmsSettingsScreen(
                     onEnabledChange = { enabled -> onAlarmEnabledChange(alarm, enabled) },
                     onDelete = { onDeleteAlarm(alarm) },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlarmAudioPolicyCard(
+    bypassDndEnabled: Boolean,
+    notificationPolicyAccess: Boolean,
+    error: String?,
+    onEnabledChange: (Boolean) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("صوت المنبّه في الأوضاع الصامتة", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (notificationPolicyAccess) "إذن عدم الإزعاج متاح"
+                        else "يتطلب إذن الوصول إلى سياسة عدم الإزعاج",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = bypassDndEnabled && notificationPolicyAccess,
+                    onCheckedChange = onEnabledChange,
+                )
+            }
+            Text(
+                "عند التفعيل، تسمح قناة المنبّه الصوتي بتجاوز عدم الإزعاج وتستخدم مسار صوت التنبيه " +
+                    "للهاتف في الوضع الصامت. يبقى مستوى صوت المنبّه وإعدادات الشركة المصنّعة مؤثرًا.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!notificationPolicyAccess) {
+                TextButton(onClick = { onEnabledChange(true) }) {
+                    Text("منح إذن عدم الإزعاج")
+                }
+            }
+            error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
         }
     }

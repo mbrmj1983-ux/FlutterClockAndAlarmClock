@@ -60,11 +60,18 @@ class AlarmReceiver : BroadcastReceiver() {
 
     private fun showNotification(context: Context, alarm: Alarm) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        val channelId = if (alarm.soundEnabled) SOUND_CHANNEL_ID else SILENT_CHANNEL_ID
-        val channelName = if (alarm.soundEnabled) {
-            R.string.alarm_channel_sound_name
-        } else {
-            R.string.alarm_channel_silent_name
+        val bypassDnd = alarm.soundEnabled &&
+            AlarmAudioSettings.bypassDndEnabled(context) &&
+            manager.isNotificationPolicyAccessGranted
+        val channelId = when {
+            !alarm.soundEnabled -> SILENT_CHANNEL_ID
+            bypassDnd -> SOUND_CHANNEL_BYPASS_DND_ID
+            else -> SOUND_CHANNEL_ID
+        }
+        val channelName = when {
+            !alarm.soundEnabled -> R.string.alarm_channel_silent_name
+            bypassDnd -> R.string.alarm_channel_dnd_name
+            else -> R.string.alarm_channel_sound_name
         }
         val channel = NotificationChannel(
             channelId,
@@ -74,6 +81,7 @@ class AlarmReceiver : BroadcastReceiver() {
             description = context.getString(R.string.alarm_channel_description)
             enableVibration(false)
             lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+            setBypassDnd(bypassDnd)
             if (alarm.soundEnabled) {
                 setSound(
                     Uri.parse("android.resource://${context.packageName}/${R.raw.alarm_morse_dot}"),
@@ -185,6 +193,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
     companion object {
         const val SOUND_CHANNEL_ID = "alarms_with_morse_dot"
+        const val SOUND_CHANNEL_BYPASS_DND_ID = "alarms_with_morse_dot_bypass_dnd"
         const val SILENT_CHANNEL_ID = "alarms_silent"
     }
 }

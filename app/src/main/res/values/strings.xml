@@ -3,6 +3,7 @@
     <string name="alarm_channel_name">المنبّهات</string>
     <string name="alarm_channel_description">إشعارات المنبّهات والتذكيرات</string>
     <string name="alarm_channel_sound_name">منبّه بنغمة نقطة مورس</string>
+    <string name="alarm_channel_dnd_name">منبّه بنغمة نقطة مورس مع تجاوز عدم الإزعاج</string>
     <string name="alarm_channel_silent_name">منبّه صامت</string>
     <string name="alarm_ringing_title">حان وقت المنبّه</string>
     <string name="alarm_ringing_message">يمكنك إيقاف التنبيه أو تأجيله عشر دقائق.</string>
