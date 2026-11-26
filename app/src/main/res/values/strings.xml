@@ -9,4 +9,7 @@
     <string name="dismiss_alarm">إيقاف</string>
     <string name="snooze_alarm">غفوة 10 دقائق</string>
     <string name="hijri_date">التاريخ الهجري: %1$s</string>
+    <string name="invalid_alarm_link">رابط المنبّه غير صالح؛ استخدم عنوان http أو https.</string>
+    <string name="no_browser_for_alarm_link">لا يوجد تطبيق متاح لفتح الرابط.</string>
+    <string name="cannot_open_alarm_link">تعذر فتح رابط المنبّه.</string>
 </resources>

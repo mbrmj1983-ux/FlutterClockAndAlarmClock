@@ -108,6 +108,9 @@ class AlarmReceiver : BroadcastReceiver() {
                 putExtra(AlarmScheduler.EXTRA_ALARM_ID, alarm.id)
                 putExtra(AlarmScheduler.EXTRA_HOUR, alarm.hour)
                 putExtra(AlarmScheduler.EXTRA_MINUTE, alarm.minute)
+                putExtra(AlarmScheduler.EXTRA_ALARM_LABEL, alarm.label)
+                putExtra(AlarmScheduler.EXTRA_LINK_URL, alarm.linkUrl)
+                putExtra(AlarmScheduler.EXTRA_LINK_LABEL, alarm.linkLabel)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -128,7 +131,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle(context.getString(R.string.app_name))
+            .setContentTitle(alarm.label?.takeIf(String::isNotBlank) ?: context.getString(R.string.app_name))
             .setContentText("%02d:%02d".format(alarm.hour, alarm.minute))
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -173,6 +176,9 @@ class AlarmReceiver : BroadcastReceiver() {
                 putExtra(AlarmScheduler.EXTRA_ALARM_ID, alarm.id)
                 putExtra(AlarmScheduler.EXTRA_HOUR, alarm.hour)
                 putExtra(AlarmScheduler.EXTRA_MINUTE, alarm.minute)
+                putExtra(AlarmScheduler.EXTRA_ALARM_LABEL, alarm.label)
+                putExtra(AlarmScheduler.EXTRA_LINK_URL, alarm.linkUrl)
+                putExtra(AlarmScheduler.EXTRA_LINK_LABEL, alarm.linkLabel)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

@@ -189,6 +189,54 @@ class AlarmTimeTest {
     }
 
     @Test
+    fun alarmStoreRoundTripsOptionalArabicLabelWithSeparators() {
+        val alarm = Alarm(
+            id = 42,
+            hour = 6,
+            minute = 30,
+            label = "دواء | الصباح",
+        )
+
+        assertEquals(alarm, decodeAlarm(encodeAlarm(alarm)))
+    }
+
+    @Test
+    fun alarmStoreRoundTripsLinkAndButtonLabel() {
+        val alarm = Alarm(
+            id = 42,
+            hour = 6,
+            minute = 30,
+            linkUrl = "https://example.com/reminder",
+            linkLabel = "فتح صفحة الدواء",
+        )
+
+        assertEquals(alarm, decodeAlarm(encodeAlarm(alarm)))
+    }
+
+    @Test
+    fun alarmStoreTreatsBlankOptionalLabelAsMissing() {
+        val alarm = Alarm(id = 42, hour = 6, minute = 30, label = "  ")
+
+        assertEquals(null, decodeAlarm(encodeAlarm(alarm))?.label)
+    }
+
+    @Test
+    fun webLinksDefaultToHttpsAndRejectNonWebSchemes() {
+        assertEquals("https://example.com/page", normalizeWebUrl("example.com/page"))
+        assertEquals("http://example.com", normalizeWebUrl("http://example.com"))
+        assertEquals(
+            "https://www.youtube.com/watch?v=video123",
+            normalizeWebUrl("https://www.youtube.com/watch?v=video123"),
+        )
+        assertEquals(
+            "https://youtu.be/video123",
+            normalizeWebUrl("youtu.be/video123"),
+        )
+        assertNull(normalizeWebUrl("javascript:alert(1)"))
+        assertNull(normalizeWebUrl("https://"))
+    }
+
+    @Test
     fun oldWeeklyAlarmDecodesToWeeklyRecurrence() {
         val alarm = decodeAlarm("42|6|30|true|1,5|-|true|false")
 

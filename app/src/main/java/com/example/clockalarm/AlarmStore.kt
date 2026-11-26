@@ -4,6 +4,7 @@ import android.content.Context
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
+import java.util.Base64
 
 object AlarmStore {
     private const val PREFERENCES_NAME = "alarms"
@@ -26,7 +27,7 @@ object AlarmStore {
 
 internal fun decodeAlarm(encoded: String): Alarm? {
     val parts = encoded.split('|')
-    if (parts.size !in setOf(3, 6, 8, 9)) return null
+    if (parts.size !in setOf(3, 6, 8, 9, 10, 12)) return null
     val id = parts[0].toLongOrNull() ?: return null
     val hour = parts[1].toIntOrNull() ?: return null
     val minute = parts[2].toIntOrNull() ?: return null
@@ -50,17 +51,17 @@ internal fun decodeAlarm(encoded: String): Alarm? {
             return null
         }
     }
-    val visualEnabled = if (parts.size == 8 || parts.size == 9) {
+    val visualEnabled = if (parts.size == 8 || parts.size == 9 || parts.size == 10 || parts.size == 12) {
         parts[6].toBooleanStrictOrNull() ?: return null
     } else {
         true
     }
-    val soundEnabled = if (parts.size == 8 || parts.size == 9) {
+    val soundEnabled = if (parts.size == 8 || parts.size == 9 || parts.size == 10 || parts.size == 12) {
         parts[7].toBooleanStrictOrNull() ?: return null
     } else {
         true
     }
-    val recurrence = if (parts.size == 9 && parts[8].isNotEmpty()) {
+    val recurrence = if ((parts.size == 9 || parts.size == 10 || parts.size == 12) && parts[8].isNotEmpty()) {
         try {
             AlarmRecurrence.valueOf(parts[8])
         } catch (_: IllegalArgumentException) {
@@ -69,12 +70,64 @@ internal fun decodeAlarm(encoded: String): Alarm? {
     } else {
         null
     }
-    return Alarm(id, hour, minute, enabled, repeatDays, date, visualEnabled, soundEnabled, recurrence)
+    val decodedLabel = decodeOptionalText(parts.getOrNull(9)) ?: return null
+    val decodedLinkUrl = decodeOptionalText(parts.getOrNull(10)) ?: return null
+    val decodedLinkLabel = decodeOptionalText(parts.getOrNull(11)) ?: return null
+    val label = decodedLabel.value
+    val linkUrl = decodedLinkUrl.value?.let(::normalizeWebUrl)
+    val linkLabel = decodedLinkLabel.value
+    return Alarm(
+        id,
+        hour,
+        minute,
+        enabled,
+        repeatDays,
+        date,
+        visualEnabled,
+        soundEnabled,
+        recurrence,
+        label,
+        linkUrl,
+        linkLabel,
+    )
 }
 
 internal fun encodeAlarm(alarm: Alarm): String {
     val days = alarm.repeatDays.sortedBy { it.value }.joinToString(",") {
         it.value.toString()
     }
-    return "${alarm.id}|${alarm.hour}|${alarm.minute}|${alarm.enabled}|$days|${alarm.date ?: "-"}|${alarm.visualEnabled}|${alarm.soundEnabled}|${alarm.recurrence?.name.orEmpty()}"
+    return listOf(
+        alarm.id.toString(),
+        alarm.hour.toString(),
+        alarm.minute.toString(),
+        alarm.enabled.toString(),
+        days,
+        alarm.date?.toString() ?: "-",
+        alarm.visualEnabled.toString(),
+        alarm.soundEnabled.toString(),
+        alarm.recurrence?.name.orEmpty(),
+        encodeOptionalText(alarm.label),
+        encodeOptionalText(alarm.linkUrl?.let(::normalizeWebUrl)),
+        encodeOptionalText(alarm.linkLabel),
+    ).joinToString("|")
+}
+
+private fun encodeOptionalText(value: String?): String =
+    value?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?.let { Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray(Charsets.UTF_8)) }
+        .orEmpty()
+        .ifEmpty { "!" }
+
+private data class DecodedText(val value: String?)
+
+private fun decodeOptionalText(value: String?): DecodedText? {
+    if (value.isNullOrEmpty() || value == "!") return DecodedText(null)
+    return try {
+        DecodedText(
+            Base64.getUrlDecoder().decode(value).toString(Charsets.UTF_8).takeIf(String::isNotBlank),
+        )
+    } catch (_: IllegalArgumentException) {
+        null
+    }
 }

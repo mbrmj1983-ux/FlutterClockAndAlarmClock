@@ -3,6 +3,8 @@ package com.example.clockalarm
 import android.Manifest
 import android.app.AlarmManager
 import android.app.NotificationManager
+import android.graphics.Paint as AndroidPaint
+import android.graphics.Typeface
 import android.content.Intent
 import android.content.ActivityNotFoundException
 import android.os.Build
@@ -38,6 +40,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -62,6 +65,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -277,11 +282,14 @@ private fun ClockScreen() {
         AlarmEditorDialog(
             existing = alarms.firstOrNull { it.id == editingAlarmId },
             onDismiss = { showAlarmEditor = false },
-            onSave = { hour, minute, date, repeatDays, recurrence, soundEnabled ->
+            onSave = { hour, minute, label, linkUrl, linkLabel, date, repeatDays, recurrence, soundEnabled ->
                 val existing = alarms.firstOrNull { it.id == editingAlarmId }
                 val updated = existing?.copy(
                     hour = hour,
                     minute = minute,
+                    label = label,
+                    linkUrl = linkUrl,
+                    linkLabel = linkLabel,
                     repeatDays = repeatDays,
                     date = date,
                     visualEnabled = true,
@@ -291,6 +299,9 @@ private fun ClockScreen() {
                     id = System.currentTimeMillis(),
                     hour = hour,
                     minute = minute,
+                    label = label,
+                    linkUrl = linkUrl,
+                    linkLabel = linkLabel,
                     repeatDays = repeatDays,
                     date = date,
                     visualEnabled = true,
@@ -489,10 +500,16 @@ private fun AnalogClock(
             style = Stroke(width = 2.dp.toPx()),
         )
 
-        for (hour in 0 until 12) {
-            val angle = Math.toRadians(hour * 30.0 - 90.0)
-            val outerRadius = radius * 0.9f
-            val innerRadius = radius * if (hour % 3 == 0) 0.78f else 0.84f
+        for (minuteMark in 0 until 60) {
+            val angle = Math.toRadians(minuteMark * 6.0 - 90.0)
+            val isFiveMinuteMark = minuteMark % 5 == 0
+            val isQuarterHourMark = minuteMark % 15 == 0
+            val outerRadius = radius * 0.94f
+            val innerRadius = radius * when {
+                isQuarterHourMark -> 0.81f
+                isFiveMinuteMark -> 0.85f
+                else -> 0.90f
+            }
             drawLine(
                 color = faceColor,
                 start = Offset(
@@ -503,8 +520,34 @@ private fun AnalogClock(
                     center.x + kotlin.math.cos(angle).toFloat() * outerRadius,
                     center.y + kotlin.math.sin(angle).toFloat() * outerRadius,
                 ),
-                strokeWidth = if (hour % 3 == 0) 2.dp.toPx() else 1.dp.toPx(),
+                strokeWidth = when {
+                    isQuarterHourMark -> 2.5.dp.toPx()
+                    isFiveMinuteMark -> 1.75.dp.toPx()
+                    else -> 1.dp.toPx()
+                },
                 cap = StrokeCap.Round,
+            )
+        }
+
+        val numeralPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            color = faceColor.toArgb()
+            textAlign = AndroidPaint.Align.CENTER
+            textSize = 12.dp.toPx()
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+        val numeralRadius = radius * 0.66f
+        val numeralBaselineOffset = -(numeralPaint.ascent() + numeralPaint.descent()) / 2f
+        val nativeCanvas = drawContext.canvas.nativeCanvas
+        for (hour in 0 until 12) {
+            val angle = Math.toRadians(hour * 30.0 - 90.0)
+            val numeral = if (hour == 0) "١٢" else hour.toString().map { digit ->
+                ('٠'.code + digit.digitToInt()).toChar()
+            }.joinToString("")
+            nativeCanvas.drawText(
+                numeral,
+                center.x + kotlin.math.cos(angle).toFloat() * numeralRadius,
+                center.y + kotlin.math.sin(angle).toFloat() * numeralRadius + numeralBaselineOffset,
+                numeralPaint,
             )
         }
 
@@ -537,6 +580,7 @@ private fun AlarmCard(
     onEnabledChange: (Boolean) -> Unit,
     onDelete: () -> Unit,
 ) {
+    val context = LocalContext.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -549,6 +593,13 @@ private fun AlarmCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                alarm.label?.takeIf(String::isNotBlank)?.let { label ->
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Text(
                     text = "%02d:%02d".format(alarm.hour, alarm.minute),
                     style = MaterialTheme.typography.headlineMedium,
@@ -558,6 +609,13 @@ private fun AlarmCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                val linkUrl = alarm.linkUrl
+                val linkLabel = alarm.linkLabel
+                if (!linkUrl.isNullOrBlank() && !linkLabel.isNullOrBlank()) {
+                    Button(onClick = { openAlarmLink(context, linkUrl) }) {
+                        Text(linkLabel)
+                    }
+                }
             }
             Column(horizontalAlignment = Alignment.End) {
                 Switch(checked = alarm.enabled, onCheckedChange = onEnabledChange)
@@ -575,7 +633,17 @@ private fun AlarmCard(
 private fun AlarmEditorDialog(
     existing: Alarm?,
     onDismiss: () -> Unit,
-    onSave: (Int, Int, LocalDate?, Set<DayOfWeek>, AlarmRecurrence, Boolean) -> Boolean,
+    onSave: (
+        Int,
+        Int,
+        String?,
+        String?,
+        String?,
+        LocalDate?,
+        Set<DayOfWeek>,
+        AlarmRecurrence,
+        Boolean,
+    ) -> Boolean,
 ) {
     val context = LocalContext.current
     val now = remember { LocalDateTime.now() }
@@ -595,8 +663,12 @@ private fun AlarmEditorDialog(
     var repeatDays by remember {
         mutableStateOf(existing?.repeatDays ?: setOf(now.dayOfWeek))
     }
+    var label by remember { mutableStateOf(existing?.label.orEmpty()) }
+    var linkUrl by remember { mutableStateOf(existing?.linkUrl.orEmpty()) }
+    var linkLabel by remember { mutableStateOf(existing?.linkLabel.orEmpty()) }
     var soundEnabled by remember { mutableStateOf(existing?.soundEnabled ?: false) }
     var showInvalidDate by remember { mutableStateOf(false) }
+    var showInvalidLink by remember { mutableStateOf(false) }
     val fullScreenPermissionMissing =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
             !context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
@@ -614,6 +686,43 @@ private fun AlarmEditorDialog(
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("تسمية (اختيارية)") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = linkUrl,
+                    onValueChange = {
+                        linkUrl = it
+                        showInvalidLink = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("رابط ويب (اختياري)") },
+                    placeholder = { Text("https://youtu.be/… أو example.com") },
+                    singleLine = true,
+                )
+                if (linkUrl.isNotBlank()) {
+                    OutlinedTextField(
+                        value = linkLabel,
+                        onValueChange = {
+                            linkLabel = it
+                            showInvalidLink = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("تسمية زر الرابط") },
+                        singleLine = true,
+                    )
+                }
+                if (showInvalidLink) {
+                    Text(
+                        "أدخل رابط http أو https وتسمية للزر.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 Text(
                     "وتيرة التكرار",
                     modifier = Modifier.fillMaxWidth(),
@@ -786,11 +895,20 @@ private fun AlarmEditorDialog(
                         else -> null
                     }
                     val days = if (recurrence == AlarmRecurrence.WEEKLY) repeatDays else emptySet()
-                    if (recurrence == AlarmRecurrence.WEEKLY && days.isEmpty()) {
+                    val normalizedLink = if (linkUrl.isBlank()) null else normalizeWebUrl(linkUrl)
+                    if (
+                        linkUrl.isNotBlank() &&
+                        (normalizedLink == null || linkLabel.isBlank())
+                    ) {
+                        showInvalidLink = true
+                    } else if (recurrence == AlarmRecurrence.WEEKLY && days.isEmpty()) {
                         showInvalidDate = true
                     } else if (onSave(
                             timePickerState.hour,
                             timePickerState.minute,
+                            label.trim().takeIf(String::isNotEmpty),
+                            normalizedLink,
+                            linkLabel.trim().takeIf { normalizedLink != null && it.isNotEmpty() },
                             date,
                             days,
                             recurrence,

@@ -23,6 +23,9 @@ data class Alarm(
     val visualEnabled: Boolean = true,
     val soundEnabled: Boolean = true,
     val recurrence: AlarmRecurrence? = null,
+    val label: String? = null,
+    val linkUrl: String? = null,
+    val linkLabel: String? = null,
 )
 
 internal val Alarm.effectiveRecurrence: AlarmRecurrence

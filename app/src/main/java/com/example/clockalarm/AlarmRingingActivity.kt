@@ -34,6 +34,9 @@ class AlarmRingingActivity : ComponentActivity() {
         if (handleNotificationAction(intent.action, alarmId)) return
         val hour = intent.getIntExtra(AlarmScheduler.EXTRA_HOUR, -1)
         val minute = intent.getIntExtra(AlarmScheduler.EXTRA_MINUTE, -1)
+        val alarmLabel = intent.getStringExtra(AlarmScheduler.EXTRA_ALARM_LABEL)?.takeIf(String::isNotBlank)
+        val linkUrl = intent.getStringExtra(AlarmScheduler.EXTRA_LINK_URL)
+        val linkLabel = intent.getStringExtra(AlarmScheduler.EXTRA_LINK_LABEL)
         if (alarmId < 0 || hour !in 0..23 || minute !in 0..59) {
             finish()
             return
@@ -70,7 +73,7 @@ class AlarmRingingActivity : ComponentActivity() {
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(
-                            text = getString(R.string.alarm_ringing_title),
+                            text = alarmLabel ?: getString(R.string.alarm_ringing_title),
                             style = MaterialTheme.typography.headlineMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -86,6 +89,12 @@ class AlarmRingingActivity : ComponentActivity() {
                             text = getString(R.string.alarm_ringing_message),
                             style = MaterialTheme.typography.bodyLarge,
                         )
+                        if (!linkUrl.isNullOrBlank() && !linkLabel.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(onClick = { openAlarmLink(this@AlarmRingingActivity, linkUrl) }) {
+                                Text(linkLabel)
+                            }
+                        }
                         Spacer(modifier = Modifier.height(32.dp))
                         Button(onClick = { dismissAlarm(alarmId) }) {
                             Text(getString(R.string.dismiss_alarm))
