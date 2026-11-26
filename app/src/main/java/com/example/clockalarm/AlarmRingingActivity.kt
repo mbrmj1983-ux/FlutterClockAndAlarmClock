@@ -2,7 +2,10 @@ package com.example.clockalarm
 
 import android.os.Build
 import android.os.Bundle
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,13 +16,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
@@ -28,6 +37,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 class AlarmRingingActivity : ComponentActivity() {
+    private var alarmPlayer: MediaPlayer? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val alarmId = intent.getLongExtra(AlarmScheduler.EXTRA_ALARM_ID, -1L)
@@ -37,6 +48,12 @@ class AlarmRingingActivity : ComponentActivity() {
         val alarmLabel = intent.getStringExtra(AlarmScheduler.EXTRA_ALARM_LABEL)?.takeIf(String::isNotBlank)
         val linkUrl = intent.getStringExtra(AlarmScheduler.EXTRA_LINK_URL)
         val linkLabel = intent.getStringExtra(AlarmScheduler.EXTRA_LINK_LABEL)
+        val linkButtonColor = if (intent.hasExtra(AlarmScheduler.EXTRA_LINK_BUTTON_COLOR)) {
+            intent.getLongExtra(AlarmScheduler.EXTRA_LINK_BUTTON_COLOR, 0L)
+        } else {
+            null
+        }
+        val shouldPlaySound = intent.getBooleanExtra(AlarmScheduler.EXTRA_SOUND_ENABLED, false)
         if (alarmId < 0 || hour !in 0..23 || minute !in 0..59) {
             finish()
             return
@@ -65,6 +82,7 @@ class AlarmRingingActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize()) {
+                    var soundEnabled by remember { mutableStateOf(setAlarmSoundEnabled(shouldPlaySound)) }
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -91,9 +109,26 @@ class AlarmRingingActivity : ComponentActivity() {
                         )
                         if (!linkUrl.isNullOrBlank() && !linkLabel.isNullOrBlank()) {
                             Spacer(modifier = Modifier.height(16.dp))
-                            Button(onClick = { openAlarmLink(this@AlarmRingingActivity, linkUrl) }) {
+                            Button(
+                                onClick = { openAlarmLink(this@AlarmRingingActivity, linkUrl) },
+                                colors = linkButtonColor?.let {
+                                    ButtonDefaults.buttonColors(containerColor = Color(it))
+                                } ?: ButtonDefaults.buttonColors(),
+                            ) {
                                 Text(linkLabel)
                             }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedButton(
+                            onClick = { soundEnabled = setAlarmSoundEnabled(!soundEnabled) },
+                        ) {
+                            Text(
+                                if (soundEnabled) {
+                                    getString(R.string.mute_alarm_sound)
+                                } else {
+                                    getString(R.string.enable_alarm_sound)
+                                },
+                            )
                         }
                         Spacer(modifier = Modifier.height(32.dp))
                         Button(onClick = { dismissAlarm(alarmId) }) {
@@ -121,6 +156,12 @@ class AlarmRingingActivity : ComponentActivity() {
         if (hasFocus) hideSystemBars()
     }
 
+    override fun onDestroy() {
+        alarmPlayer?.release()
+        alarmPlayer = null
+        super.onDestroy()
+    }
+
     private fun hideSystemBars() {
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -141,6 +182,27 @@ class AlarmRingingActivity : ComponentActivity() {
             }
         }
         return false
+    }
+
+    private fun setAlarmSoundEnabled(enabled: Boolean): Boolean {
+        if (!enabled) {
+            alarmPlayer?.pause()
+            return false
+        }
+        if (alarmPlayer == null) {
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            alarmPlayer = MediaPlayer.create(this, R.raw.alarm_morse_loop, audioAttributes, 0)
+            if (alarmPlayer == null) {
+                Toast.makeText(this, R.string.alarm_sound_unavailable, Toast.LENGTH_SHORT).show()
+                return false
+            }
+            alarmPlayer?.isLooping = true
+        }
+        alarmPlayer?.start()
+        return true
     }
 
     private fun dismissAlarm(alarmId: Long) {

@@ -214,6 +214,20 @@ class AlarmTimeTest {
     }
 
     @Test
+    fun alarmStoreRoundTripsOptionalLinkButtonColor() {
+        val alarm = Alarm(
+            id = 42,
+            hour = 6,
+            minute = 30,
+            linkUrl = "https://example.com",
+            linkLabel = "فتح",
+            linkButtonColor = 0xFF0061A4L,
+        )
+
+        assertEquals(alarm, decodeAlarm(encodeAlarm(alarm)))
+    }
+
+    @Test
     fun alarmStoreTreatsBlankOptionalLabelAsMissing() {
         val alarm = Alarm(id = 42, hour = 6, minute = 30, label = "  ")
 
@@ -241,6 +255,47 @@ class AlarmTimeTest {
         val alarm = decodeAlarm("42|6|30|true|1,5|-|true|false")
 
         assertEquals(AlarmRecurrence.WEEKLY, alarm?.effectiveRecurrence)
+    }
+
+    @Test
+    fun prayerReminderSettingsToggleCategoriesIndependently() {
+        val settings = PrayerReminderSettings()
+            .withEnabled(PrayerReminderCategory.FAJR, true)
+            .withEnabled(PrayerReminderCategory.FRIDAY, true)
+            .withEnabled(PrayerReminderCategory.FAJR, false)
+
+        assertEquals(setOf(PrayerReminderCategory.FRIDAY), settings.enabled)
+    }
+
+    @Test
+    fun fridayReminderTargetsTheStartOfFridayInTheSelectedZone() {
+        val now = ZonedDateTime.of(2026, 1, 1, 20, 0, 0, 0, zone).toInstant()
+
+        val reminder = nextPrayerReminder(
+            PrayerReminderCategory.FRIDAY,
+            now,
+            PrayerSettings(location = PrayerCities.makkah),
+        )
+
+        assertEquals("يوم الجمعة", reminder?.title)
+        assertEquals(
+            ZonedDateTime.of(2026, 1, 1, 21, 0, 0, 0, zone).toInstant(),
+            reminder?.at,
+        )
+    }
+
+    @Test
+    fun prayerReminderSelectsTheNextPrayerTime() {
+        val now = ZonedDateTime.of(2026, 1, 2, 10, 0, 0, 0, zone).toInstant()
+
+        val reminder = nextPrayerReminder(
+            PrayerReminderCategory.FAJR,
+            now,
+            PrayerSettings(location = PrayerCities.makkah),
+        )
+
+        assertEquals(true, reminder?.at?.isAfter(now))
+        assertEquals("حان وقت صلاة الفجر", reminder?.title)
     }
 
     @Test

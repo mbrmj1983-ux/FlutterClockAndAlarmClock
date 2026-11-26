@@ -81,7 +81,9 @@ class AlarmReceiver : BroadcastReceiver() {
             description = context.getString(R.string.alarm_channel_description)
             enableVibration(false)
             lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
-            setBypassDnd(bypassDnd)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                setBypassDnd(bypassDnd)
+            }
             if (alarm.soundEnabled) {
                 setSound(
                     Uri.parse("android.resource://${context.packageName}/${R.raw.alarm_morse_dot}"),
@@ -119,6 +121,10 @@ class AlarmReceiver : BroadcastReceiver() {
                 putExtra(AlarmScheduler.EXTRA_ALARM_LABEL, alarm.label)
                 putExtra(AlarmScheduler.EXTRA_LINK_URL, alarm.linkUrl)
                 putExtra(AlarmScheduler.EXTRA_LINK_LABEL, alarm.linkLabel)
+                putExtra(AlarmScheduler.EXTRA_SOUND_ENABLED, alarm.soundEnabled)
+                alarm.linkButtonColor?.let {
+                    putExtra(AlarmScheduler.EXTRA_LINK_BUTTON_COLOR, it)
+                }
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -147,6 +153,18 @@ class AlarmReceiver : BroadcastReceiver() {
             .setContentIntent(openAlarm)
             .setOngoing(true)
             .setAutoCancel(false)
+        val linkUrl = alarm.linkUrl?.let(::normalizeWebUrl)
+        val linkLabel = alarm.linkLabel?.takeIf(String::isNotBlank)
+        if (linkUrl != null && linkLabel != null) {
+            val openLink = PendingIntent.getActivity(
+                context,
+                alarm.id.hashCode() + 3,
+                Intent(Intent.ACTION_VIEW, Uri.parse(linkUrl)),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            notification.addAction(android.R.drawable.ic_menu_view, linkLabel, openLink)
+        }
+        notification
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 context.getString(R.string.dismiss_alarm),
@@ -187,6 +205,10 @@ class AlarmReceiver : BroadcastReceiver() {
                 putExtra(AlarmScheduler.EXTRA_ALARM_LABEL, alarm.label)
                 putExtra(AlarmScheduler.EXTRA_LINK_URL, alarm.linkUrl)
                 putExtra(AlarmScheduler.EXTRA_LINK_LABEL, alarm.linkLabel)
+                putExtra(AlarmScheduler.EXTRA_SOUND_ENABLED, alarm.soundEnabled)
+                alarm.linkButtonColor?.let {
+                    putExtra(AlarmScheduler.EXTRA_LINK_BUTTON_COLOR, it)
+                }
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

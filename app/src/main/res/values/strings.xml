@@ -13,4 +13,10 @@
     <string name="invalid_alarm_link">رابط المنبّه غير صالح؛ استخدم عنوان http أو https.</string>
     <string name="no_browser_for_alarm_link">لا يوجد تطبيق متاح لفتح الرابط.</string>
     <string name="cannot_open_alarm_link">تعذر فتح رابط المنبّه.</string>
+    <string name="mute_alarm_sound">كتم صوت الرنين</string>
+    <string name="enable_alarm_sound">تشغيل صوت الرنين</string>
+    <string name="alarm_sound_unavailable">تعذر تشغيل صوت المنبّه على هذا الجهاز.</string>
+    <string name="prayer_reminder_channel_name">تنبيهات الصلاة والمناسبات بنغمة نقطة مورس</string>
+    <string name="prayer_reminder_channel_description">تنبيهات أوقات الصلاة والجمعة والمناسبات والفصول بنغمة مورس القصيرة</string>
+    <string name="prayer_reminder_notification_text">حان الموعد المحدد.</string>
 </resources>

@@ -28,6 +28,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -51,6 +53,13 @@ import java.util.Locale
 internal fun PrayerDashboard(now: Instant) {
     val context = LocalContext.current
     var settings by remember { mutableStateOf(PrayerSettingsStore.load(context)) }
+    var reminderSettings by remember { mutableStateOf(PrayerReminderSettingsStore.load(context)) }
+    var notificationsAllowed by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED && NotificationManagerCompat.from(context).areNotificationsEnabled(),
+        )
+    }
     var showSettings by remember { mutableStateOf(false) }
     var showCities by remember { mutableStateOf(false) }
     var locationMessage by remember { mutableStateOf<String?>(null) }
@@ -58,6 +67,27 @@ internal fun PrayerDashboard(now: Instant) {
     fun updateSettings(updated: PrayerSettings) {
         settings = updated
         PrayerSettingsStore.save(context, updated)
+        PrayerReminderScheduler.scheduleAll(context)
+    }
+
+    val reminderNotificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        notificationsAllowed = granted && NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+
+    fun changeReminder(category: PrayerReminderCategory, enabled: Boolean) {
+        reminderSettings = reminderSettings.withEnabled(category, enabled)
+        PrayerReminderSettingsStore.save(context, reminderSettings)
+        PrayerReminderScheduler.scheduleAll(context)
+        if (
+            enabled &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            reminderNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     val locationPermission = rememberLauncherForActivityResult(
@@ -215,6 +245,11 @@ internal fun PrayerDashboard(now: Instant) {
             }
         }
     }
+    PrayerReminderSettingsCard(
+        settings = reminderSettings,
+        notificationsAllowed = notificationsAllowed,
+        onReminderChange = ::changeReminder,
+    )
 
     if (showSettings) {
         PrayerSettingsDialog(
@@ -251,6 +286,66 @@ internal fun PrayerDashboard(now: Instant) {
             },
             confirmButton = { TextButton(onClick = { showCities = false }) { Text("إغلاق") } },
         )
+    }
+}
+
+@Composable
+private fun PrayerReminderSettingsCard(
+    settings: PrayerReminderSettings,
+    notificationsAllowed: Boolean,
+    onReminderChange: (PrayerReminderCategory, Boolean) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("تنبيهات المواقيت والمناسبات", style = MaterialTheme.typography.titleMedium)
+            if (!notificationsAllowed) {
+                Text(
+                    "اسمح بإشعارات التطبيق من Android لتصلك التنبيهات.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Text("تنبيهات الصلوات", style = MaterialTheme.typography.titleSmall)
+            PrayerReminderCategory.values().filter { it.isPrayer }.forEach { category ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(category.title, style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = settings.isEnabled(category),
+                        onCheckedChange = { onReminderChange(category, it) },
+                    )
+                }
+            }
+            Text("تنبيهات المناسبات والفصول", style = MaterialTheme.typography.titleSmall)
+            PrayerReminderCategory.values().filterNot { it.isPrayer }.forEach { category ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(category.title, style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = settings.isEnabled(category),
+                        onCheckedChange = { onReminderChange(category, it) },
+                    )
+                }
+            }
+            Text(
+                "تصل تنبيهات الصلاة عند دخول وقتها، والجمعة عند بداية يومها، والمناسبات والفصول عند بدايتها. " +
+                    "قد يؤثر توفير الطاقة أو إذن التنبيه الدقيق في توقيت التسليم.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
 

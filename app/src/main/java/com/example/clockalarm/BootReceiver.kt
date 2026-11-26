@@ -10,5 +10,6 @@ class BootReceiver : BroadcastReceiver() {
         AlarmStore.load(context).filter(Alarm::enabled).forEach { alarm ->
             AlarmScheduler.schedule(context, alarm)
         }
+        PrayerReminderScheduler.scheduleAll(context)
     }
 }

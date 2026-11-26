@@ -31,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
@@ -212,6 +213,7 @@ private fun ClockScreen() {
 
     LaunchedEffect(Unit) {
         alarms.filter(Alarm::enabled).forEach { AlarmScheduler.schedule(context, it) }
+        PrayerReminderScheduler.scheduleAll(context)
         while (true) {
             currentTime = LocalDateTime.now()
             currentInstant = Instant.now()
@@ -345,7 +347,7 @@ private fun ClockScreen() {
         AlarmEditorDialog(
             existing = alarms.firstOrNull { it.id == editingAlarmId },
             onDismiss = { showAlarmEditor = false },
-            onSave = { hour, minute, label, linkUrl, linkLabel, date, repeatDays, recurrence, soundEnabled ->
+            onSave = { hour, minute, label, linkUrl, linkLabel, linkButtonColor, date, repeatDays, recurrence, soundEnabled ->
                 val existing = alarms.firstOrNull { it.id == editingAlarmId }
                 val updated = existing?.copy(
                     hour = hour,
@@ -353,6 +355,7 @@ private fun ClockScreen() {
                     label = label,
                     linkUrl = linkUrl,
                     linkLabel = linkLabel,
+                    linkButtonColor = linkButtonColor,
                     repeatDays = repeatDays,
                     date = date,
                     visualEnabled = true,
@@ -365,6 +368,7 @@ private fun ClockScreen() {
                     label = label,
                     linkUrl = linkUrl,
                     linkLabel = linkLabel,
+                    linkButtonColor = linkButtonColor,
                     repeatDays = repeatDays,
                     date = date,
                     visualEnabled = true,
@@ -737,7 +741,12 @@ private fun AlarmCard(
                 val linkUrl = alarm.linkUrl
                 val linkLabel = alarm.linkLabel
                 if (!linkUrl.isNullOrBlank() && !linkLabel.isNullOrBlank()) {
-                    Button(onClick = { openAlarmLink(context, linkUrl) }) {
+                    Button(
+                        onClick = { openAlarmLink(context, linkUrl) },
+                        colors = alarm.linkButtonColor?.let {
+                            ButtonDefaults.buttonColors(containerColor = Color(it))
+                        } ?: ButtonDefaults.buttonColors(),
+                    ) {
                         Text(linkLabel)
                     }
                 }
@@ -764,6 +773,7 @@ private fun AlarmEditorDialog(
         String?,
         String?,
         String?,
+        Long?,
         LocalDate?,
         Set<DayOfWeek>,
         AlarmRecurrence,
@@ -791,6 +801,7 @@ private fun AlarmEditorDialog(
     var label by remember { mutableStateOf(existing?.label.orEmpty()) }
     var linkUrl by remember { mutableStateOf(existing?.linkUrl.orEmpty()) }
     var linkLabel by remember { mutableStateOf(existing?.linkLabel.orEmpty()) }
+    var linkButtonColor by remember { mutableStateOf(existing?.linkButtonColor) }
     var soundEnabled by remember { mutableStateOf(existing?.soundEnabled ?: false) }
     var showInvalidDate by remember { mutableStateOf(false) }
     var showInvalidLink by remember { mutableStateOf(false) }
@@ -840,6 +851,30 @@ private fun AlarmEditorDialog(
                         label = { Text("تسمية زر الرابط") },
                         singleLine = true,
                     )
+                    val linkColors = listOf(
+                        null to "افتراضي",
+                        0xFF6750A4L to "بنفسجي",
+                        0xFF006C4CL to "أخضر",
+                        0xFF0061A4L to "أزرق",
+                        0xFFBA1A1AL to "أحمر",
+                        0xFF8C5000L to "برتقالي",
+                    )
+                    Text(
+                        "لون زر الرابط (اختياري)",
+                        modifier = Modifier.fillMaxWidth(),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    linkColors.chunked(3).forEach { colorRow ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            colorRow.forEach { (argb, labelText) ->
+                                FilterChip(
+                                    selected = linkButtonColor == argb,
+                                    onClick = { linkButtonColor = argb },
+                                    label = { Text(labelText) },
+                                )
+                            }
+                        }
+                    }
                 }
                 if (showInvalidLink) {
                     Text(
@@ -1034,6 +1069,7 @@ private fun AlarmEditorDialog(
                             label.trim().takeIf(String::isNotEmpty),
                             normalizedLink,
                             linkLabel.trim().takeIf { normalizedLink != null && it.isNotEmpty() },
+                            linkButtonColor.takeIf { normalizedLink != null },
                             date,
                             days,
                             recurrence,

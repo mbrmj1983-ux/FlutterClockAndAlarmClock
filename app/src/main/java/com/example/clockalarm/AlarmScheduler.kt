@@ -57,6 +57,7 @@ object AlarmScheduler {
             putExtra(EXTRA_HOUR, alarm.hour)
             putExtra(EXTRA_MINUTE, alarm.minute)
             putExtra(EXTRA_ALARM_LABEL, alarm.label)
+            putExtra(EXTRA_SOUND_ENABLED, alarm.soundEnabled)
         }
         return PendingIntent.getBroadcast(
             context,
@@ -76,4 +77,6 @@ object AlarmScheduler {
     const val EXTRA_ALARM_LABEL = "alarm_label"
     const val EXTRA_LINK_URL = "alarm_link_url"
     const val EXTRA_LINK_LABEL = "alarm_link_label"
+    const val EXTRA_LINK_BUTTON_COLOR = "alarm_link_button_color"
+    const val EXTRA_SOUND_ENABLED = "alarm_sound_enabled"
 }

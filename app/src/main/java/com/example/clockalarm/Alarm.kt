@@ -26,6 +26,7 @@ data class Alarm(
     val label: String? = null,
     val linkUrl: String? = null,
     val linkLabel: String? = null,
+    val linkButtonColor: Long? = null,
 )
 
 internal val Alarm.effectiveRecurrence: AlarmRecurrence

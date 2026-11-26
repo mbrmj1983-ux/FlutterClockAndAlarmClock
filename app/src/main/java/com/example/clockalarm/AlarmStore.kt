@@ -27,7 +27,7 @@ object AlarmStore {
 
 internal fun decodeAlarm(encoded: String): Alarm? {
     val parts = encoded.split('|')
-    if (parts.size !in setOf(3, 6, 8, 9, 10, 12)) return null
+    if (parts.size !in setOf(3, 6, 8, 9, 10, 12, 13)) return null
     val id = parts[0].toLongOrNull() ?: return null
     val hour = parts[1].toIntOrNull() ?: return null
     val minute = parts[2].toIntOrNull() ?: return null
@@ -51,17 +51,17 @@ internal fun decodeAlarm(encoded: String): Alarm? {
             return null
         }
     }
-    val visualEnabled = if (parts.size == 8 || parts.size == 9 || parts.size == 10 || parts.size == 12) {
+    val visualEnabled = if (parts.size in setOf(8, 9, 10, 12, 13)) {
         parts[6].toBooleanStrictOrNull() ?: return null
     } else {
         true
     }
-    val soundEnabled = if (parts.size == 8 || parts.size == 9 || parts.size == 10 || parts.size == 12) {
+    val soundEnabled = if (parts.size in setOf(8, 9, 10, 12, 13)) {
         parts[7].toBooleanStrictOrNull() ?: return null
     } else {
         true
     }
-    val recurrence = if ((parts.size == 9 || parts.size == 10 || parts.size == 12) && parts[8].isNotEmpty()) {
+    val recurrence = if (parts.size in setOf(9, 10, 12, 13) && parts[8].isNotEmpty()) {
         try {
             AlarmRecurrence.valueOf(parts[8])
         } catch (_: IllegalArgumentException) {
@@ -73,6 +73,9 @@ internal fun decodeAlarm(encoded: String): Alarm? {
     val decodedLabel = decodeOptionalText(parts.getOrNull(9)) ?: return null
     val decodedLinkUrl = decodeOptionalText(parts.getOrNull(10)) ?: return null
     val decodedLinkLabel = decodeOptionalText(parts.getOrNull(11)) ?: return null
+    val linkButtonColor = parts.getOrNull(12)?.takeIf(String::isNotEmpty)?.let {
+        it.toLongOrNull() ?: return null
+    }
     val label = decodedLabel.value
     val linkUrl = decodedLinkUrl.value?.let(::normalizeWebUrl)
     val linkLabel = decodedLinkLabel.value
@@ -89,6 +92,7 @@ internal fun decodeAlarm(encoded: String): Alarm? {
         label,
         linkUrl,
         linkLabel,
+        linkButtonColor,
     )
 }
 
@@ -109,6 +113,7 @@ internal fun encodeAlarm(alarm: Alarm): String {
         encodeOptionalText(alarm.label),
         encodeOptionalText(alarm.linkUrl?.let(::normalizeWebUrl)),
         encodeOptionalText(alarm.linkLabel),
+        alarm.linkButtonColor?.toString().orEmpty(),
     ).joinToString("|")
 }
 
