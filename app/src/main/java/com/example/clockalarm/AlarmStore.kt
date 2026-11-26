@@ -26,7 +26,7 @@ object AlarmStore {
 
 internal fun decodeAlarm(encoded: String): Alarm? {
     val parts = encoded.split('|')
-    if (parts.size != 3 && parts.size != 6 && parts.size != 8) return null
+    if (parts.size !in setOf(3, 6, 8, 9)) return null
     val id = parts[0].toLongOrNull() ?: return null
     val hour = parts[1].toIntOrNull() ?: return null
     val minute = parts[2].toIntOrNull() ?: return null
@@ -50,22 +50,31 @@ internal fun decodeAlarm(encoded: String): Alarm? {
             return null
         }
     }
-    val visualEnabled = if (parts.size == 8) {
+    val visualEnabled = if (parts.size == 8 || parts.size == 9) {
         parts[6].toBooleanStrictOrNull() ?: return null
     } else {
         true
     }
-    val soundEnabled = if (parts.size == 8) {
+    val soundEnabled = if (parts.size == 8 || parts.size == 9) {
         parts[7].toBooleanStrictOrNull() ?: return null
     } else {
         true
     }
-    return Alarm(id, hour, minute, enabled, repeatDays, date, visualEnabled, soundEnabled)
+    val recurrence = if (parts.size == 9 && parts[8].isNotEmpty()) {
+        try {
+            AlarmRecurrence.valueOf(parts[8])
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+    } else {
+        null
+    }
+    return Alarm(id, hour, minute, enabled, repeatDays, date, visualEnabled, soundEnabled, recurrence)
 }
 
 internal fun encodeAlarm(alarm: Alarm): String {
     val days = alarm.repeatDays.sortedBy { it.value }.joinToString(",") {
         it.value.toString()
     }
-    return "${alarm.id}|${alarm.hour}|${alarm.minute}|${alarm.enabled}|$days|${alarm.date ?: "-"}|${alarm.visualEnabled}|${alarm.soundEnabled}"
+    return "${alarm.id}|${alarm.hour}|${alarm.minute}|${alarm.enabled}|$days|${alarm.date ?: "-"}|${alarm.visualEnabled}|${alarm.soundEnabled}|${alarm.recurrence?.name.orEmpty()}"
 }

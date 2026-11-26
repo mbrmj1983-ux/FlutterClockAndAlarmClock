@@ -1,6 +1,7 @@
 package com.example.clockalarm
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.ActivityNotFoundException
@@ -276,26 +277,31 @@ private fun ClockScreen() {
         AlarmEditorDialog(
             existing = alarms.firstOrNull { it.id == editingAlarmId },
             onDismiss = { showAlarmEditor = false },
-            onSave = { hour, minute, date, repeatDays, visualEnabled, soundEnabled ->
+            onSave = { hour, minute, date, repeatDays, recurrence, soundEnabled ->
                 val existing = alarms.firstOrNull { it.id == editingAlarmId }
                 val updated = existing?.copy(
                     hour = hour,
                     minute = minute,
                     repeatDays = repeatDays,
                     date = date,
-                    visualEnabled = visualEnabled,
+                    visualEnabled = true,
                     soundEnabled = soundEnabled,
+                    recurrence = recurrence,
                 ) ?: Alarm(
                     id = System.currentTimeMillis(),
                     hour = hour,
                     minute = minute,
                     repeatDays = repeatDays,
                     date = date,
-                    visualEnabled = visualEnabled,
+                    visualEnabled = true,
                     soundEnabled = soundEnabled,
+                    recurrence = recurrence,
                 )
 
-                if (date != null && nextAlarmTimeMillis(updated, ZonedDateTime.now()) == null) {
+                if (
+                    recurrence == AlarmRecurrence.ONCE &&
+                    nextAlarmTimeMillis(updated, ZonedDateTime.now()) == null
+                ) {
                     false
                 } else {
                     if (existing != null) {
@@ -569,7 +575,7 @@ private fun AlarmCard(
 private fun AlarmEditorDialog(
     existing: Alarm?,
     onDismiss: () -> Unit,
-    onSave: (Int, Int, LocalDate?, Set<DayOfWeek>, Boolean, Boolean) -> Boolean,
+    onSave: (Int, Int, LocalDate?, Set<DayOfWeek>, AlarmRecurrence, Boolean) -> Boolean,
 ) {
     val context = LocalContext.current
     val now = remember { LocalDateTime.now() }
@@ -582,17 +588,21 @@ private fun AlarmEditorDialog(
     val datePickerState = rememberDatePickerState(
         initialSelectedDateMillis = initialDate.atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli(),
     )
-    var calendarEnabled by remember { mutableStateOf(existing?.date != null) }
     var showDatePicker by remember { mutableStateOf(false) }
-    var repeatDays by remember {
-        mutableStateOf(existing?.repeatDays ?: DayOfWeek.values().toSet())
+    var recurrence by remember {
+        mutableStateOf(existing?.effectiveRecurrence ?: AlarmRecurrence.DAILY)
     }
-    var visualEnabled by remember { mutableStateOf(existing?.visualEnabled ?: true) }
+    var repeatDays by remember {
+        mutableStateOf(existing?.repeatDays ?: setOf(now.dayOfWeek))
+    }
     var soundEnabled by remember { mutableStateOf(existing?.soundEnabled ?: false) }
     var showInvalidDate by remember { mutableStateOf(false) }
     val fullScreenPermissionMissing =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
             !context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
+    val exactAlarmPermissionMissing =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            !context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -604,33 +614,50 @@ private fun AlarmEditorDialog(
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                TimePicker(state = timePickerState)
-                AlarmOptionSwitch(
-                    label = "موعد في التقويم",
-                    checked = calendarEnabled,
-                    onCheckedChange = {
-                        calendarEnabled = it
-                        showInvalidDate = false
-                    },
+                Text(
+                    "وتيرة التكرار",
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.titleSmall,
                 )
-                if (calendarEnabled) {
+                val recurrenceOptions = listOf(
+                    AlarmRecurrence.MINUTELY to "كل دقيقة",
+                    AlarmRecurrence.HOURLY to "كل ساعة",
+                    AlarmRecurrence.DAILY to "يوميًا",
+                    AlarmRecurrence.WEEKLY to "أسبوعيًا",
+                    AlarmRecurrence.MONTHLY to "شهريًا",
+                    AlarmRecurrence.YEARLY to "سنويًا",
+                    AlarmRecurrence.ONCE to "مرة واحدة",
+                )
+                recurrenceOptions.chunked(3).forEach { rowOptions ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        val selectedDate = datePickerState.selectedDateMillis
-                            ?.let { java.time.Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }
-                        Text(
-                            selectedDate?.format(
-                                DateTimeFormatter.ofPattern("EEEE، d MMMM yyyy", Locale("ar")),
-                            ) ?: "اختر التاريخ",
-                        )
-                        TextButton(onClick = { showDatePicker = true }) {
-                            Text("اختيار")
+                        rowOptions.forEach { (option, label) ->
+                            FilterChip(
+                                selected = recurrence == option,
+                                onClick = {
+                                    recurrence = option
+                                    showInvalidDate = false
+                                },
+                                label = { Text(label) },
+                            )
                         }
                     }
-                } else {
+                }
+                TimePicker(state = timePickerState)
+                if (
+                    recurrence == AlarmRecurrence.MINUTELY ||
+                    recurrence == AlarmRecurrence.HOURLY
+                ) {
+                    Text(
+                        "يبدأ من الوقت المحدد ثم يتكرر حسب الوتيرة.",
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (recurrence == AlarmRecurrence.WEEKLY) {
                     Text(
                         "أيام التكرار",
                         modifier = Modifier
@@ -663,11 +690,28 @@ private fun AlarmEditorDialog(
                         }
                     }
                 }
-                AlarmOptionSwitch(
-                    label = "تنبيه بصري على شاشة القفل",
-                    checked = visualEnabled,
-                    onCheckedChange = { visualEnabled = it },
-                )
+                if (
+                    recurrence == AlarmRecurrence.ONCE ||
+                    recurrence == AlarmRecurrence.MONTHLY ||
+                    recurrence == AlarmRecurrence.YEARLY
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        val selectedDate = datePickerState.selectedDateMillis
+                            ?.let { java.time.Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }
+                        Text(
+                            selectedDate?.format(
+                                DateTimeFormatter.ofPattern("EEEE، d MMMM yyyy", Locale("ar")),
+                            ) ?: "اختر التاريخ",
+                        )
+                        TextButton(onClick = { showDatePicker = true }) {
+                            Text("اختيار")
+                        }
+                    }
+                }
                 AlarmOptionSwitch(
                     label = "تشغيل الصوت",
                     checked = soundEnabled,
@@ -681,9 +725,9 @@ private fun AlarmEditorDialog(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                if (visualEnabled && fullScreenPermissionMissing) {
+                if (fullScreenPermissionMissing) {
                     Text(
-                        "قد يقيّد Android العرض بملء الشاشة حتى تمنح الإذن من إعدادات النظام.",
+                        "قد يمنع Android فتح شاشة التنبيه فوق التطبيقات حتى تسمح بملء الشاشة من إعدادات النظام.",
                         modifier = Modifier.fillMaxWidth(),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
@@ -700,9 +744,28 @@ private fun AlarmEditorDialog(
                         Text("إعدادات التنبيه بملء الشاشة")
                     }
                 }
+                if (exactAlarmPermissionMissing) {
+                    Text(
+                        "قد يتأخر التنبيه إذا لم تسمح بجدولة المنبّهات الدقيقة من إعدادات النظام.",
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(
+                        onClick = {
+                            context.startActivity(
+                                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                },
+                            )
+                        },
+                    ) {
+                        Text("إعدادات دقة التنبيه")
+                    }
+                }
                 if (showInvalidDate) {
                     Text(
-                        "اختر تاريخًا مستقبليًا أو يومًا واحدًا على الأقل.",
+                        "اختر يومًا واحدًا على الأقل للتكرار الأسبوعي أو تاريخًا مستقبليًا للمنبّه المنفرد.",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -712,21 +775,25 @@ private fun AlarmEditorDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    val date = if (calendarEnabled) {
-                        datePickerState.selectedDateMillis
-                            ?.let { java.time.Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }
-                            ?: LocalDate.now()
-                    } else {
-                        null
+                    val selectedDate = datePickerState.selectedDateMillis
+                        ?.let { java.time.Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }
+                        ?: LocalDate.now()
+                    val date = when (recurrence) {
+                        AlarmRecurrence.ONCE, AlarmRecurrence.MONTHLY, AlarmRecurrence.YEARLY ->
+                            selectedDate
+                        AlarmRecurrence.MINUTELY, AlarmRecurrence.HOURLY ->
+                            existing?.date ?: selectedDate
+                        else -> null
                     }
-                    if (date == null && repeatDays.isEmpty()) {
+                    val days = if (recurrence == AlarmRecurrence.WEEKLY) repeatDays else emptySet()
+                    if (recurrence == AlarmRecurrence.WEEKLY && days.isEmpty()) {
                         showInvalidDate = true
                     } else if (onSave(
                             timePickerState.hour,
                             timePickerState.minute,
                             date,
-                            if (calendarEnabled) emptySet() else repeatDays,
-                            visualEnabled,
+                            days,
+                            recurrence,
                             soundEnabled,
                         )
                     ) {
@@ -777,12 +844,19 @@ private fun AlarmOptionSwitch(
 }
 
 private fun alarmDescription(alarm: Alarm): String {
-    val date = alarm.date
-    if (date != null) {
-        return date.format(DateTimeFormatter.ofPattern("EEEE، d MMMM yyyy", Locale("ar")))
+    when (alarm.effectiveRecurrence) {
+        AlarmRecurrence.MINUTELY -> return "كل دقيقة"
+        AlarmRecurrence.HOURLY -> return "كل ساعة"
+        AlarmRecurrence.DAILY -> return "يوميًا"
+        AlarmRecurrence.MONTHLY -> return "شهريًا في اليوم ${alarm.date?.dayOfMonth ?: 1}"
+        AlarmRecurrence.YEARLY -> return alarm.date
+            ?.format(DateTimeFormatter.ofPattern("سنويًا — d MMMM", Locale("ar")))
+            ?: "سنويًا"
+        AlarmRecurrence.ONCE -> return alarm.date
+            ?.format(DateTimeFormatter.ofPattern("EEEE، d MMMM yyyy", Locale("ar")))
+            ?: "مرة واحدة"
+        AlarmRecurrence.WEEKLY -> Unit
     }
-    val allDays = DayOfWeek.values().toSet()
-    if (alarm.repeatDays == allDays) return "يوميًا"
     val labels = mapOf(
         DayOfWeek.MONDAY to "الاثنين",
         DayOfWeek.TUESDAY to "الثلاثاء",

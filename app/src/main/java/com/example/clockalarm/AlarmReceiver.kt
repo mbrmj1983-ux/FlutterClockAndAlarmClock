@@ -9,7 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
-import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
@@ -37,7 +36,7 @@ class AlarmReceiver : BroadcastReceiver() {
         if (!isSnooze && !storedAlarm.enabled) return
 
         if (!isSnooze) {
-            if (storedAlarm.date != null || storedAlarm.repeatDays.isEmpty()) {
+            if (storedAlarm.effectiveRecurrence == AlarmRecurrence.ONCE) {
                 alarms[index] = storedAlarm.copy(enabled = false)
                 AlarmStore.save(context, alarms)
             } else {
@@ -77,7 +76,7 @@ class AlarmReceiver : BroadcastReceiver() {
             lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             if (alarm.soundEnabled) {
                 setSound(
-                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                    Uri.parse("android.resource://${context.packageName}/${R.raw.alarm_morse_dot}"),
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_ALARM)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -100,15 +99,10 @@ class AlarmReceiver : BroadcastReceiver() {
         }
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
 
-        val activityClass = if (alarm.visualEnabled) {
-            AlarmRingingActivity::class.java
-        } else {
-            MainActivity::class.java
-        }
         val openAlarm = PendingIntent.getActivity(
             context,
             alarm.id.hashCode(),
-            Intent(context, activityClass).apply {
+            Intent(context, AlarmRingingActivity::class.java).apply {
                 action = "com.example.clockalarm.OPEN_ALARM"
                 data = Uri.parse("clockalarm://notification/${alarm.id}")
                 putExtra(AlarmScheduler.EXTRA_ALARM_ID, alarm.id)
@@ -154,9 +148,8 @@ class AlarmReceiver : BroadcastReceiver() {
             )
 
         if (
-            alarm.visualEnabled &&
-            (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
-                manager.canUseFullScreenIntent())
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+            manager.canUseFullScreenIntent()
         ) {
             notification.setFullScreenIntent(openAlarm, true)
         }
@@ -170,19 +163,22 @@ class AlarmReceiver : BroadcastReceiver() {
         path: String,
         requestCodeOffset: Int,
     ): PendingIntent =
-        PendingIntent.getBroadcast(
+        PendingIntent.getActivity(
             context,
             alarm.id.hashCode() + requestCodeOffset,
-            Intent(context, AlarmReceiver::class.java).apply {
+            Intent(context, AlarmRingingActivity::class.java).apply {
                 this.action = action
                 data = Uri.parse("clockalarm://$path/${alarm.id}")
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra(AlarmScheduler.EXTRA_ALARM_ID, alarm.id)
+                putExtra(AlarmScheduler.EXTRA_HOUR, alarm.hour)
+                putExtra(AlarmScheduler.EXTRA_MINUTE, alarm.minute)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
     companion object {
-        const val SOUND_CHANNEL_ID = "alarms_with_sound"
+        const val SOUND_CHANNEL_ID = "alarms_with_morse_dot"
         const val SILENT_CHANNEL_ID = "alarms_silent"
     }
 }

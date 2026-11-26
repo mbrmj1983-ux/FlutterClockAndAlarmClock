@@ -5,27 +5,22 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import java.time.ZonedDateTime
 
 object AlarmScheduler {
     fun schedule(context: Context, alarm: Alarm) {
         if (!alarm.enabled) return
         val triggerAtMillis = nextAlarmTimeMillis(alarm, ZonedDateTime.now()) ?: return
-        val pendingIntent = pendingIntent(context, alarm, ACTION_RING)
-        val alarmManager = context.getSystemService(AlarmManager::class.java)
-        alarmManager.setAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP,
-            triggerAtMillis,
-            pendingIntent,
-        )
+        scheduleAt(context, alarm, ACTION_RING, triggerAtMillis)
     }
 
     fun scheduleSnooze(context: Context, alarm: Alarm) {
-        val alarmManager = context.getSystemService(AlarmManager::class.java)
-        alarmManager.setAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP,
+        scheduleAt(
+            context,
+            alarm,
+            ACTION_RING_SNOOZED,
             snoozeTriggerAtMillis(System.currentTimeMillis()),
-            pendingIntent(context, alarm, ACTION_RING_SNOOZED),
         )
     }
 
@@ -33,6 +28,19 @@ object AlarmScheduler {
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         alarmManager.cancel(pendingIntent(context, alarm, ACTION_RING))
         alarmManager.cancel(pendingIntent(context, alarm, ACTION_RING_SNOOZED))
+    }
+
+    private fun scheduleAt(context: Context, alarm: Alarm, action: String, triggerAtMillis: Long) {
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        val operation = pendingIntent(context, alarm, action)
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            alarmManager.canScheduleExactAlarms()
+        ) {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, operation)
+        } else {
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, operation)
+        }
     }
 
     private fun pendingIntent(context: Context, alarm: Alarm, action: String): PendingIntent {

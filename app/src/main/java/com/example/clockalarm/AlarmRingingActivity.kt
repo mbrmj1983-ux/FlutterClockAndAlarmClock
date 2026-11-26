@@ -3,6 +3,7 @@ package com.example.clockalarm
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -22,11 +23,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class AlarmRingingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val alarmId = intent.getLongExtra(AlarmScheduler.EXTRA_ALARM_ID, -1L)
+        if (handleNotificationAction(intent.action, alarmId)) return
         val hour = intent.getIntExtra(AlarmScheduler.EXTRA_HOUR, -1)
         val minute = intent.getIntExtra(AlarmScheduler.EXTRA_MINUTE, -1)
         if (alarmId < 0 || hour !in 0..23 || minute !in 0..59) {
@@ -45,6 +50,14 @@ class AlarmRingingActivity : ComponentActivity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        hideSystemBars()
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() = Unit
+            },
+        )
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
@@ -85,6 +98,40 @@ class AlarmRingingActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val alarmId = intent.getLongExtra(AlarmScheduler.EXTRA_ALARM_ID, -1L)
+        handleNotificationAction(intent.action, alarmId)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemBars()
+    }
+
+    private fun hideSystemBars() {
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+
+    private fun handleNotificationAction(action: String?, alarmId: Long): Boolean {
+        when (action) {
+            AlarmScheduler.ACTION_DISMISS -> {
+                if (alarmId >= 0) dismissAlarm(alarmId) else finish()
+                return true
+            }
+            AlarmScheduler.ACTION_SNOOZE -> {
+                if (alarmId >= 0) snoozeAlarm(alarmId) else finish()
+                return true
+            }
+        }
+        return false
     }
 
     private fun dismissAlarm(alarmId: Long) {

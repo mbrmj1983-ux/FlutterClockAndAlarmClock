@@ -45,6 +45,66 @@ class AlarmTimeTest {
     }
 
     @Test
+    fun minuteRecurrenceUsesTheNextMinuteAfterItsAnchor() {
+        val now = ZonedDateTime.of(2026, 1, 2, 10, 17, 45, 0, zone)
+        val alarm = Alarm(
+            id = 1,
+            hour = 9,
+            minute = 15,
+            date = LocalDate.of(2026, 1, 2),
+            recurrence = AlarmRecurrence.MINUTELY,
+        )
+        val expected = ZonedDateTime.of(2026, 1, 2, 10, 18, 0, 0, zone)
+
+        assertEquals(expected.toInstant().toEpochMilli(), nextAlarmTimeMillis(alarm, now))
+    }
+
+    @Test
+    fun hourlyRecurrencePreservesItsOriginalTimeAnchor() {
+        val now = ZonedDateTime.of(2026, 1, 2, 10, 17, 45, 0, zone)
+        val alarm = Alarm(
+            id = 1,
+            hour = 8,
+            minute = 30,
+            date = LocalDate.of(2026, 1, 2),
+            recurrence = AlarmRecurrence.HOURLY,
+        )
+        val expected = ZonedDateTime.of(2026, 1, 2, 10, 30, 0, 0, zone)
+
+        assertEquals(expected.toInstant().toEpochMilli(), nextAlarmTimeMillis(alarm, now))
+    }
+
+    @Test
+    fun monthlyRecurrenceClampsTheAnchorDayToTheMonthLength() {
+        val now = ZonedDateTime.of(2026, 2, 28, 9, 0, 0, 0, zone)
+        val alarm = Alarm(
+            id = 1,
+            hour = 8,
+            minute = 0,
+            date = LocalDate.of(2026, 1, 31),
+            recurrence = AlarmRecurrence.MONTHLY,
+        )
+        val expected = ZonedDateTime.of(2026, 3, 31, 8, 0, 0, 0, zone)
+
+        assertEquals(expected.toInstant().toEpochMilli(), nextAlarmTimeMillis(alarm, now))
+    }
+
+    @Test
+    fun yearlyRecurrenceClampsLeapDayInNonLeapYears() {
+        val now = ZonedDateTime.of(2025, 3, 1, 9, 0, 0, 0, zone)
+        val alarm = Alarm(
+            id = 1,
+            hour = 8,
+            minute = 0,
+            date = LocalDate.of(2024, 2, 29),
+            recurrence = AlarmRecurrence.YEARLY,
+        )
+        val expected = ZonedDateTime.of(2026, 2, 28, 8, 0, 0, 0, zone)
+
+        assertEquals(expected.toInstant().toEpochMilli(), nextAlarmTimeMillis(alarm, now))
+    }
+
+    @Test
     fun calendarAlarmDoesNotRollOverWhenItsDateHasPassed() {
         val now = ZonedDateTime.of(2026, 1, 2, 9, 15, 0, 0, zone)
         val alarm = Alarm(1, 8, 0, date = LocalDate.of(2026, 1, 2))
@@ -112,6 +172,27 @@ class AlarmTimeTest {
         )
 
         assertEquals(alarm, decodeAlarm(encodeAlarm(alarm)))
+    }
+
+    @Test
+    fun alarmStoreRoundTripsRecurrenceFrequency() {
+        val alarm = Alarm(
+            id = 42,
+            hour = 6,
+            minute = 30,
+            repeatDays = emptySet(),
+            date = LocalDate.of(2026, 2, 1),
+            recurrence = AlarmRecurrence.YEARLY,
+        )
+
+        assertEquals(alarm, decodeAlarm(encodeAlarm(alarm)))
+    }
+
+    @Test
+    fun oldWeeklyAlarmDecodesToWeeklyRecurrence() {
+        val alarm = decodeAlarm("42|6|30|true|1,5|-|true|false")
+
+        assertEquals(AlarmRecurrence.WEEKLY, alarm?.effectiveRecurrence)
     }
 
     @Test

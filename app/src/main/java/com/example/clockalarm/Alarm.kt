@@ -3,6 +3,16 @@ package com.example.clockalarm
 import java.time.DayOfWeek
 import java.time.LocalDate
 
+enum class AlarmRecurrence {
+    MINUTELY,
+    HOURLY,
+    DAILY,
+    WEEKLY,
+    MONTHLY,
+    YEARLY,
+    ONCE,
+}
+
 data class Alarm(
     val id: Long,
     val hour: Int,
@@ -12,4 +22,13 @@ data class Alarm(
     val date: LocalDate? = null,
     val visualEnabled: Boolean = true,
     val soundEnabled: Boolean = true,
+    val recurrence: AlarmRecurrence? = null,
 )
+
+internal val Alarm.effectiveRecurrence: AlarmRecurrence
+    get() = recurrence ?: when {
+        date != null -> AlarmRecurrence.ONCE
+        repeatDays.isEmpty() -> AlarmRecurrence.ONCE
+        repeatDays.size == DayOfWeek.values().size -> AlarmRecurrence.DAILY
+        else -> AlarmRecurrence.WEEKLY
+    }
